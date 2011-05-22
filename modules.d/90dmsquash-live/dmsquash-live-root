@@ -138,6 +138,8 @@ if [ -e /run/initramfs/live/${live_dir}/ext3fs.img ]; then
     FSIMG="/run/initramfs/live/${live_dir}/ext3fs.img"
 elif [ -e /run/initramfs/live/${live_dir}/rootfs.img ]; then
     FSIMG="/run/initramfs/live/${live_dir}/rootfs.img"
+elif [ -e /run/initramfs/live/${live_dir}/image.squashfs ]; then
+    FSIMG="/run/initramfs/live/${live_dir}/image.squashfs"
 fi
 
 if [ -n "$FSIMG" ] ; then
@@ -192,6 +194,14 @@ if [ -n "$ROOTFLAGS" ]; then
 fi
 
 ln -s /dev/mapper/live-rw /dev/root
-printf '/bin/mount %s /dev/mapper/live-rw %s\n' "$ROOTFLAGS" "$NEWROOT" > $hookdir/mount/01-$$-live.sh
+#printf '/bin/mount %s /dev/mapper/live-rw %s\n' "$ROOTFLAGS" "$NEWROOT" > $hookdir/mount/01-$$-live.sh
+cat > $hookdir/mount/01-$$-live.sh <<EOF
+mkdir -p /tmp/live-cow/ 
+mkdir -p /tmp/live-image/ 
+mount -t tmpfs -o size=10% tmpfs /tmp/live-cow/
+mount $ROOTFLAGS /dev/mapper/live-rw /tmp/live-image/
+mount -t aufs -o rw,noatime,dirs=/tmp/live-cow=rw:/tmp/live-image=ro aufs $NEWROOT
+EOF
+
 
 exit 0
