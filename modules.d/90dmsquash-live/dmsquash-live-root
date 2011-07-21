@@ -195,13 +195,20 @@ fi
 
 ln -s /dev/mapper/live-rw /dev/root
 #printf '/bin/mount %s /dev/mapper/live-rw %s\n' "$ROOTFLAGS" "$NEWROOT" > $hookdir/mount/01-$$-live.sh
+
+LIVE_BASE="/dev/.live/image/"
+LIVE_OVERLAY="/dev/.live/cow/"
+
 cat > $hookdir/mount/01-$$-live.sh <<EOF
-mkdir -p /tmp/live-cow/ 
-mkdir -p /tmp/live-image/ 
-mount -t tmpfs -o size=10% tmpfs /tmp/live-cow/
-mount $ROOTFLAGS /dev/mapper/live-rw /tmp/live-image/
-mount -t aufs -o rw,noatime,dirs=/tmp/live-cow=rw:/tmp/live-image=ro aufs $NEWROOT
+mkdir -p $LIVE_BASE $LIVE_OVERLAY
+mount $ROOTFLAGS /dev/mapper/live-rw $LIVE_BASE
+mount LABEL=live-rw $LIVE_OVERLAY
+mount -t aufs -o rw,noatime,dirs=$LIVE_OVERLAY=rw:$LIVE_BASE=ro aufs $NEWROOT
 EOF
+
+# NOTE: For overlay machanism comparsion, 
+#     device-mapper => device level
+#     aufs          => filesystem level
 
 
 exit 0
