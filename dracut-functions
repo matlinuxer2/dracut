@@ -236,7 +236,10 @@ inst_dir() {
             [[ -h ${initdir}$_file ]] && _file=$(readlink "${initdir}$_file")
             # create directory
             mkdir -m 0755 -p "${initdir}$_file" || return 1
-            [[ -d "$_file" ]] && chmod --reference="$_file" "${initdir}$_file"
+            if [[ -d "$_file" ]]; then
+                chmod --reference="$_file" "${initdir}$_file"
+                chmod u+w "${initdir}$_file"
+            fi
         fi
     done
 }
@@ -458,7 +461,7 @@ inst() {
 
 [[ $hookdirs ]] || {
     hookdirs="cmdline pre-udev pre-trigger netroot initqueue pre-mount"
-    hookdirs+=" pre-pivot mount emergency"
+    hookdirs+=" pre-pivot mount emergency emergency-shutdown shutdown"
     export hookdirs
 }
 
@@ -725,7 +728,7 @@ install_kmod_with_fw() {
 for_each_kmod_dep() {
     local _func=$1 _kmod=$2 _cmd _modpath _options _found=0
     shift 2
-    modprobe "$@" --ignore-install --show-depends $_kmod 2>/dev/null | (
+    modprobe "$@" --ignore-install --show-depends $_kmod 2>"$initdir/modprobe.err" | (
         while read _cmd _modpath _options; do
             [[ $_cmd = insmod ]] || continue
             $_func ${_modpath} || exit $?
@@ -734,6 +737,8 @@ for_each_kmod_dep() {
         [[ $_found -eq 0 ]] && exit 1
         exit 0
     )
+    egrep -v 'FATAL: Module .* not found.' "$initdir/modprobe.err" | derror
+    rm -f "$initdir/modprobe.err"
     return $?
 }
 
