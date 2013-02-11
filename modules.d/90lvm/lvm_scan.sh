@@ -7,10 +7,10 @@
 extraargs="$@"
 type getarg >/dev/null 2>&1 || . /lib/dracut-lib.sh
 
-VGS=$(getargs rd.lvm.vg rd_LVM_VG=)
-LVS=$(getargs rd.lvm.lv rd_LVM_LV=)
-SNAPSHOT=$(getargs rd.lvm.snapshot rd_LVM_SNAPSHOT=)
-SNAPSIZE=$(getargs rd.lvm.snapsize rd_LVM_SNAPSIZE=)
+VGS=$(getargs rd.lvm.vg -d rd_LVM_VG=)
+LVS=$(getargs rd.lvm.lv -d rd_LVM_LV=)
+SNAPSHOT=$(getargs rd.lvm.snapshot -d rd_LVM_SNAPSHOT=)
+SNAPSIZE=$(getargs rd.lvm.snapsize -d rd_LVM_SNAPSIZE=)
 
 [ -d /etc/lvm ] || mkdir -m 0755 -p /etc/lvm
 # build a list of devices to scan
@@ -35,10 +35,12 @@ if [ ! -e /etc/lvm/lvm.conf ]; then
         if [ -n $SNAPSHOT ]; then
             echo 'global {';
             echo '    locking_type = 1';
+            echo '    use_lvmetad = 0';
             echo '}';
         else
             echo 'global {';
             echo '    locking_type = 4';
+            echo '    use_lvmetad = 0';
             echo '}';
         fi
     } > /etc/lvm/lvm.conf
@@ -126,3 +128,7 @@ if [ "$lvmwritten" ]; then
     rm -f /etc/lvm/lvm.conf
 fi
 unset lvmwritten
+
+udevadm settle
+
+need_shutdown

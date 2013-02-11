@@ -6,13 +6,11 @@ install() {
     local _terminfodir
     # terminfo bits make things work better if you fall into interactive mode
     for _terminfodir in /lib/terminfo /etc/terminfo /usr/share/terminfo; do
-        [ -d ${_terminfodir} ] && break
+        [ -f ${_terminfodir}/l/linux ] && break
     done
 
     if [ -d ${_terminfodir} ]; then
-        for f in $(find ${_terminfodir} -type f); do
-            inst_simple $f
-        done
+        inst_dir "$_terminfodir"
+        cp --reflink=auto --sparse=auto -prfL -t "${initdir}/${_terminfodir}" "$_terminfodir"/*
     fi
 }
-

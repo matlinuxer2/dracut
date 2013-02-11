@@ -3,6 +3,7 @@
 # ex: ts=8 sw=4 sts=4 et filetype=sh
 
 check() {
+    type -P dmsetup >/dev/null || return 1
     return 255
 }
 
@@ -12,19 +13,17 @@ depends() {
 
 installkernel() {
     instmods =drivers/md
+    instmods dm_mod
 }
 
 install() {
     modinfo -k $kernel dm_mod >/dev/null 2>&1 && \
         inst_hook pre-udev 30 "$moddir/dm-pre-udev.sh"
 
-    inst dmsetup
+    dracut_install dmsetup
+    dracut_install -o dmeventd
 
-    type -P dmeventd >/dev/null && dracut_install dmeventd
-
-    for _i in {"$libdir","$usrlibdir"}/libdmraid-events*.so; do
-        [ -e "$_i" ] && dracut_install "$_i"
-    done
+    inst_libdir_file "libdevmapper-event.so*"
 
     inst_rules 10-dm.rules 13-dm-disk.rules 95-dm-notify.rules
     # Gentoo ebuild for LVM2 prior to 2.02.63-r1 doesn't install above rules

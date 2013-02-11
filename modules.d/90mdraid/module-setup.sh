@@ -7,21 +7,27 @@ check() {
     # No mdadm?  No mdraid support.
     type -P mdadm >/dev/null || return 1
 
-    . $dracutfunctions
-    [[ $debug ]] && set -x
+    check_mdraid() {
+        local dev=$1 fs=$2 holder DEVPATH MD_UUID
+        [[ "$fs" = "${fs%%_raid_member}" ]] && return 1
 
-    is_mdraid() { [[ -d "/sys/dev/block/$1/md" ]]; }
+        MD_UUID=$(/sbin/mdadm --examine --export $dev \
+            | while read line; do
+                [[ ${line#MD_UUID} = $line ]] && continue
+                eval "$line"
+                echo $MD_UUID
+                break
+                done)
 
-    [[ $hostonly ]] && {
-        _rootdev=$(find_root_block_device)
-        if [[ $_rootdev ]]; then
-            # root lives on a block device, so we can be more precise about
-            # hostonly checking
-            check_block_and_slaves is_mdraid "$_rootdev" || return 1
-        else
-            # root is not on a block device, use the shotgun approach
-            blkid | egrep -q '(linux|isw)_raid' || return 1
+        [[ ${MD_UUID} ]] || return 1
+        if ! [[ $kernel_only ]]; then
+            echo " rd.md.uuid=${MD_UUID} " >> "${initdir}/etc/cmdline.d/90mdraid.conf"
         fi
+        return 0
+    }
+
+    [[ $hostonly ]] || [[ $mount_needs ]] && {
+        for_each_host_dev_fs check_mdraid || return 1
     }
 
     return 0
@@ -37,8 +43,10 @@ installkernel() {
 }
 
 install() {
-    dracut_install mdadm partx
-
+    dracut_install cat
+    dracut_install -o mdmon
+    inst $(command -v partx) /sbin/partx
+    inst $(command -v mdadm) /sbin/mdadm
 
      # XXX: mdmon really needs to run as non-root?
      #      If so, write only the user it needs in the initrd's /etc/passwd (and maybe /etc/group)
@@ -48,14 +56,21 @@ install() {
      # inst /etc/passwd
      # inst /etc/group
 
-    if [ ! -x /lib/udev/vol_id ]; then
-        inst_rules 64-md-raid.rules
-    fi
+     inst_rules 64-md-raid.rules
+     # remove incremental assembly from stock rules, so they don't shadow
+     # 65-md-inc*.rules and its fine-grained controls, or cause other problems
+     # when we explicitly don't want certain components to be incrementally
+     # assembled
+     sed -i -r -e '/RUN\+?="[[:alpha:]/]*mdadm[[:blank:]]+(--incremental|-I)[[:blank:]]+(\$env\{DEVNAME\}|\$tempnode)"/d' "${initdir}${udevdir}/rules.d/64-md-raid.rules"
 
     inst_rules "$moddir/65-md-incremental-imsm.rules"
 
-    if ! mdadm -Q -e imsm /dev/null &> /dev/null; then
+    # guard against pre-3.0 mdadm versions, that can't handle containers
+    if ! mdadm -Q -e imsm /dev/null >/dev/null 2>&1; then
         inst_hook pre-trigger 30 "$moddir/md-noimsm.sh"
+    fi
+    if ! mdadm -Q -e ddf /dev/null >/dev/null 2>&1; then
+        inst_hook pre-trigger 30 "$moddir/md-noddf.sh"
     fi
 
     if [[ $hostonly ]] || [[ $mdadmconf = "yes" ]]; then
@@ -66,17 +81,15 @@ install() {
         fi
     fi
 
-    if [ -x  /sbin/mdmon ] ; then
-        dracut_install mdmon
-    fi
     inst_hook pre-udev 30 "$moddir/mdmon-pre-udev.sh"
-
-    inst "$moddir/mdraid_start.sh" /sbin/mdraid_start
-    inst "$moddir/mdcontainer_start.sh" /sbin/mdcontainer_start
-    inst "$moddir/mdadm_auto.sh" /sbin/mdadm_auto
-    inst "$moddir/md_finished.sh" /sbin/md_finished.sh
     inst_hook pre-trigger 30 "$moddir/parse-md.sh"
-    inst "$moddir/mdraid-cleanup.sh" /sbin/mdraid-cleanup
+    inst_hook pre-mount 10 "$moddir/mdraid-waitclean.sh"
+    inst_hook cleanup 99 "$moddir/mdraid-needshutdown.sh"
     inst_hook shutdown 30 "$moddir/md-shutdown.sh"
+    inst_script "$moddir/mdraid-cleanup.sh" /sbin/mdraid-cleanup
+    inst_script "$moddir/mdraid_start.sh" /sbin/mdraid_start
+    if [ -e /lib/systemd/system/mdmon@.service ]; then
+        inst_simple /lib/systemd/system/mdmon@.service
+    fi
+    inst_hook pre-shutdown 30 "$moddir/mdmon-pre-shutdown.sh"
 }
-

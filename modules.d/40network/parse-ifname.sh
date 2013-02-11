@@ -18,20 +18,7 @@ if ! getarg ifname= >/dev/null ; then
     return
 fi
 
-parse_ifname_opts() {
-    local IFS=:
-    set $1
-
-    case $# in
-        7)
-            ifname_if=$1
-            ifname_mac=$2:$3:$4:$5:$6:$7
-            ;;
-        *)
-            die "Invalid arguments for ifname="
-            ;;
-    esac
-}
+command -v parse_ifname_opts >/dev/null || . /lib/net-lib.sh
 
 # Check ifname= lines
 for p in $(getargs ifname=); do

@@ -3,6 +3,7 @@
 # ex: ts=8 sw=4 sts=4 et filetype=sh
 
 check() {
+    [[ "$mount_needs" ]] && return 1
     return 0
 }
 
@@ -30,7 +31,7 @@ install() {
             *) cmd=grep ;;
         esac
 
-        for INCL in $($cmd "^include " $MAP | cut -d' ' -f2 | tr -d '"'); do
+        for INCL in $($cmd "^include " $MAP | while read a a b; do echo ${a//\"/}; done); do
             for FN in $(find ${kbddir}/keymaps -type f -name $INCL\*); do
                 findkeymap $FN
             done
@@ -73,9 +74,11 @@ install() {
             for map in ${item[1]//,/ }
             do
                 map=(${map//-/ })
-                value=$(grep "^${map[0]}=" "${item[0]}")
-                value=${value#*=}
-                echo "${map[1]:-${map[0]}}=${value}"
+                if [[ -f "${item[0]}" ]]; then
+                    value=$(grep "^${map[0]}=" "${item[0]}")
+                    value=${value#*=}
+                    echo "${map[1]:-${map[0]}}=${value}"
+                fi
             done
         done
     }
@@ -83,7 +86,7 @@ install() {
     install_base() {
         dracut_install setfont loadkeys kbd_mode stty
 
-        inst ${moddir}/console_init /lib/udev/console_init
+        inst ${moddir}/console_init.sh /lib/udev/console_init
         inst_rules ${moddir}/10-console.rules
         inst_hook cmdline 20 "${moddir}/parse-i18n.sh"
     }
@@ -91,16 +94,23 @@ install() {
     install_all_kbd() {
         local rel f
 
-        for f in $(eval find ${kbddir}/{${KBDSUBDIRS}} -type f -print)
-        do
-            inst_simple $f
+        for _src in $(eval echo ${kbddir}/{${KBDSUBDIRS}}); do
+            inst_dir "$_src"
+            cp --reflink=auto --sparse=auto -prfL -t "${initdir}/${_src}" "$_src"/*
         done
 
         # remove unnecessary files
         rm -f "${initdir}${kbddir}/consoletrans/utflist"
         find "${initdir}${kbddir}/" -name README\* -delete
+        find "${initdir}${kbddir}/" -name '*.gz' -print -quit \
+            | while read line; do
+            dracut_install gzip
+            done
 
-        dracut_install gzip bzip2
+        find "${initdir}${kbddir}/" -name '*.bz2' -print -quit \
+            | while read line; do
+            dracut_install bzip2
+            done
     }
 
     install_local_i18n() {
@@ -110,16 +120,47 @@ install() {
         [ -f $I18N_CONF ] && . $I18N_CONF
         [ -f $VCONFIG_CONF ] && . $VCONFIG_CONF
 
+        shopt -q -s nocasematch
+        if [[ ${UNICODE} ]]
+        then
+            if [[ ${UNICODE} = YES || ${UNICODE} = 1 ]]
+            then
+                UNICODE=1
+            elif [[ ${UNICODE} = NO || ${UNICODE} = 0 ]]
+            then
+                UNICODE=0
+            else
+                UNICODE=''
+            fi
+        fi
+        if [[ ! ${UNICODE} && ${LANG} =~ .*\.UTF-?8 ]]
+        then
+            UNICODE=1
+        fi
+        shopt -q -u nocasematch
+
         # Gentoo user may have KEYMAP set to something like "-u pl2",
         KEYMAP=${KEYMAP#-* }
+
+        # KEYTABLE is a bit special - it defines base keymap name and UNICODE
+        # determines whether non-UNICODE or UNICODE version is used
+
+        if [[ ${KEYTABLE} ]]; then
+           if [[ ${UNICODE} == 1 ]]; then
+               [[ ${KEYTABLE} =~ .*\.uni.* ]] || KEYTABLE=${KEYTABLE%.map*}.uni
+           fi
+           KEYMAP=${KEYTABLE}
+        fi
+
         # I'm not sure of the purpose of UNIKEYMAP and GRP_TOGGLE.  They were in
         # original redhat-i18n module.  Anyway it won't hurt.
         EXT_KEYMAPS+=\ ${UNIKEYMAP}\ ${GRP_TOGGLE}
 
         [[ ${KEYMAP} ]] || {
-            derror 'No KEYMAP.'
+            dinfo 'No KEYMAP configured.'
             return 1
         }
+
         findkeymap ${KEYMAP}
 
         for map in ${EXT_KEYMAPS}
@@ -132,7 +173,7 @@ install() {
 
         inst_opt_decompress ${kbddir}/consolefonts/${DEFAULT_FONT}.*
 
-        if [[ ${FONT} ]]
+        if [[ ${FONT} ]] && [[ ${FONT} != ${DEFAULT_FONT} ]]
         then
             FONT=${FONT%.psf*}
             inst_opt_decompress ${kbddir}/consolefonts/${FONT}.*
@@ -148,23 +189,6 @@ install() {
         then
             FONT_UNIMAP=${FONT_UNIMAP%.uni}
             inst_simple ${kbddir}/unimaps/${FONT_UNIMAP}.uni
-        fi
-
-        if [[ ${UNICODE} ]]
-        then
-            if [[ ${UNICODE^^} = YES || ${UNICODE} = 1 ]]
-            then
-                UNICODE=1
-            elif [[ ${UNICODE^^} = NO || ${UNICODE} = 0 ]]
-            then
-                UNICODE=0
-            else
-                UNICODE=''
-            fi
-        fi
-        if [[ ! ${UNICODE} && ${LANG^^} =~ .*\.UTF-?8 ]]
-        then
-            UNICODE=1
         fi
 
         mksubdirs ${initdir}${I18N_CONF}

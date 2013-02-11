@@ -13,10 +13,13 @@ depends() {
     return 0
 }
 
+installkernel() {
+    instmods ctcm lcs qeth qeth_l2 qeth_l3
+}
+
 install() {
     inst_hook cmdline 30 "$moddir/parse-ccw.sh"
-    inst /lib/udev/ccw_init
     inst_rules 81-ccw.rules
-    dracut_install znet_cio_free grep sed seq readlink
+    dracut_install znet_cio_free grep sed seq readlink /lib/udev/ccw_init
 }
 

@@ -18,11 +18,78 @@ if [ -e /tmp/bridge.info ]; then
 fi
 
 mkdir -m 0755 -p /tmp/ifcfg/
+mkdir -m 0755 -p /tmp/ifcfg-leases/
+
+get_config_line_by_subchannel()
+{
+    local CHANNEL
+    local line
+
+    CHANNELS="$1"
+    while read line; do
+        if strstr "$line" "$CHANNELS"; then
+            echo $line
+            return 0
+        fi
+    done < /etc/ccw.conf
+    return 1
+}
+
+print_s390() {
+    local _netif
+    local SUBCHANNELS
+    local OPTIONS
+    local NETTYPE
+    local CONFIG_LINE
+    local i
+    local channel
+    local OLD_IFS
+
+    _netif="$1"
+    # if we find ccw channel, then use those, instead of
+    # of the MAC
+    SUBCHANNELS=$({
+        for i in /sys/class/net/$_netif/device/cdev[0-9]*; do
+            [ -e $i ] || continue
+            channel=$(readlink -f $i)
+            echo -n "${channel##*/},"
+        done
+    })
+    [ -n "$SUBCHANNELS" ] || return 1
+
+    SUBCHANNELS=${SUBCHANNELS%,}
+    echo "SUBCHANNELS=\"${SUBCHANNELS}\""
+    CONFIG_LINE=$(get_config_line_by_subchannel $SUBCHANNELS)
+
+    [ $? -ne 0 -o -z "$CONFIG_LINE" ] && return
+
+    OLD_IFS=$IFS
+    IFS=","
+    set -- $CONFIG_LINE
+    IFS=$OLD_IFS
+    NETTYPE=$1
+    shift
+    SUBCHANNELS="$1"
+    OPTIONS=""
+    shift
+    while [ $# -gt 0 ]; do
+        case $1 in
+            *=*) OPTIONS="$OPTIONS $1";;
+        esac
+        shift
+    done
+    OPTIONS=${OPTIONS## }
+    echo "NETTYPE=\"${NETTYPE}\""
+    echo "OPTIONS=\"${OPTIONS}\""
+}
+
 
 for netif in $IFACES ; do
+    [ -e /tmp/ifcfg/ifcfg-$netif ] && continue
     # bridge?
     unset bridge
     unset bond
+    uuid=$(cat /proc/sys/kernel/random/uuid)
     if [ "$netif" = "$bridgename" ]; then
         bridge=yes
     elif [ "$netif" = "$bondname" ]; then
@@ -35,17 +102,35 @@ for netif in $IFACES ; do
         echo "DEVICE=$netif"
         echo "ONBOOT=yes"
         echo "NETBOOT=yes"
+        echo "UUID=$uuid"
+        [ -n "$mtu" ] && echo "MTU=$mtu"
         if [ -f /tmp/net.$netif.lease ]; then
             strstr "$ip" '*:*:*' &&
+            echo "IPV6INIT=yes"
             echo "DHCPV6C=yes"
             echo "BOOTPROTO=dhcp"
+            cp /tmp/net.$netif.lease /tmp/ifcfg-leases/dhclient-$uuid-$netif.lease
         else
-            echo "BOOTPROTO=none"
-        # If we've booted with static ip= lines, the override file is there
+            # If we've booted with static ip= lines, the override file is there
             [ -e /tmp/net.$netif.override ] && . /tmp/net.$netif.override
-            echo "IPADDR=$ip"
-            echo "NETMASK=$mask"
-            [ -n "$gw" ] && echo "GATEWAY=$gw"
+            if strstr "$ip" '*:*:*'; then
+                echo "IPV6INIT=yes"
+                echo "IPV6_AUTOCONF=no"
+                echo "IPV6ADDR=$ip/$mask"
+            else
+                echo "BOOTPROTO=none"
+                echo "IPADDR=$ip"
+                if strstr "$mask" "."; then
+                    echo "NETMASK=$mask"
+                else
+                    echo "PREFIX=$mask"
+                fi
+            fi
+            if strstr "$gw" '*:*:*'; then
+                echo "IPV6_DEFAULTGW=$gw"
+            elif [ -n "$gw" ]; then
+                echo "GATEWAY=$gw"
+            fi
         fi
     } > /tmp/ifcfg/ifcfg-$netif
 
@@ -53,9 +138,15 @@ for netif in $IFACES ; do
     if [ -z "$bridge" ] && [ -z "$bond" ]; then
         # standard interface
         {
-            echo "HWADDR=$(cat /sys/class/net/$netif/address)"
+            if [ -n "$macaddr" ]; then
+                echo "MACADDR=$macaddr"
+            else
+                echo "HWADDR=\"$(cat /sys/class/net/$netif/address)\""
+            fi
+            print_s390 $netif
             echo "TYPE=Ethernet"
             echo "NAME=\"Boot Disk\""
+            [ -n "$mtu" ] && echo "MTU=$mtu"
         } >> /tmp/ifcfg/ifcfg-$netif
     fi
 
@@ -131,14 +222,21 @@ for netif in $IFACES ; do
             } >> /tmp/ifcfg/ifcfg-$ethname
         fi
     fi
+    i=1
+    for ns in $(getargs nameserver); do
+        echo "DNS${i}=${ns}" >> /tmp/ifcfg/ifcfg-$netif
+        i=$((i+1))
+    done
 done
 
 # Pass network opts
-[ -d /run/initramfs ] || mkdir -m 0755 -p /run/initramfs
-cp /tmp/net.* /run/initramfs/ >/dev/null 2>&1
-for i in /run/initramfs/state /run/initramfs/state/etc/ /run/initramfs/state/etc/sysconfig /run/initramfs/state/etc/sysconfig/network-scripts; do
-    [ -d $i ] || mkdir -m 0755 -p $i
-done
-cp /tmp/net.$netif.resolv.conf /run/initramfs/state/etc/ >/dev/null 2>&1
-echo "files /etc/sysconfig/network-scripts" > /run/initramfs/rwtab
-cp -a -t /run/initramfs/state/etc/sysconfig/network-scripts/ /tmp/ifcfg/* >/dev/null 2>&1
+mkdir -m 0755 -p /run/initramfs/state/etc/sysconfig/network-scripts
+mkdir -m 0755 -p /run/initramfs/state/var/lib/dhclient
+echo "files /etc/sysconfig/network-scripts" >> /run/initramfs/rwtab
+echo "files /var/lib/dhclient" >> /run/initramfs/rwtab
+{
+    cp /tmp/net.* /run/initramfs/
+    cp /tmp/net.$netif.resolv.conf /run/initramfs/state/etc/resolv.conf
+    copytree /tmp/ifcfg /run/initramfs/state/etc/sysconfig/network-scripts
+    cp /tmp/ifcfg-leases/* /run/initramfs/state/var/lib/dhclient
+} > /dev/null 2>&1

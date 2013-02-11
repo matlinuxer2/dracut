@@ -32,15 +32,17 @@ fsck_tail() {
 # note: this function sets _drv of the caller
 fsck_able() {
     case "$1" in
-        xfs) {
-                type xfs_db &&
-                type xfs_repair &&
-                type xfs_check &&
-                type mount &&
-                type umount
-            } >/dev/null 2>&1 &&
-            _drv="_drv=none fsck_drv_xfs" &&
-            return 0
+        xfs)
+            # {
+            #     type xfs_db &&
+            #     type xfs_repair &&
+            #     type xfs_check &&
+            #     type mount &&
+            #     type umount
+            # } >/dev/null 2>&1 &&
+            # _drv="_drv=none fsck_drv_xfs" &&
+            # return 0
+            return 1
             ;;
         ext?)
             type e2fsck >/dev/null 2>&1 &&
@@ -58,8 +60,14 @@ fsck_able() {
             return 0
             ;;
         btrfs)
-            type btrfsck >/dev/null 2>&1 &&
-            _drv="_drv=btrfsck fsck_drv_com" &&
+            # type btrfsck >/dev/null 2>&1 &&
+            # _drv="_drv=none fsck_drv_btrfs" &&
+            # return 0
+            return 1
+            ;;
+        nfs*)
+            # nfs can be a nop, returning success
+            _drv="_drv=none :" &&
             return 0
             ;;
         *)
@@ -75,33 +83,13 @@ fsck_able() {
 # note: all drivers inherit: _drv _fop _dev
 
 fsck_drv_xfs() {
-    local _ret
+    # xfs fsck is not necessary... Either it mounts or not
+    return 0
+}
 
-    # fs must be cleanly mounted (and umounted) first, before attempting any
-    # xfs tools - if this works, nothing else should be needed
-    # note, that user is always dropped into the shell, if the filesystem is
-    # not mountable or if -f flag is found among _fop
-    mkdir -p /tmp/.xfs
-
-    info "trying to mount $_dev"
-    if mount -t xfs "$_dev" "/tmp/.xfs" >/dev/null 2>&1; then
-        _ret=0
-        info "xfs: $_dev is clean"
-        umount "$_dev" >/dev/null 2>&1
-    else
-        _ret=4
-        warn "*** $_dev is unmountable"
-    fi
-    if [ $_ret -gt 0 ] || strstr "$_fop" "-f"; then
-        warn "*** Dropping you to a shell. You have"
-        warn "*** xfs_repair and xfs_check (xfs_db) available."
-        warn "*** Note that if xfs didn't mount properly, it's"
-        warn "*** probably pretty serious condition."
-        emergency_shell -n "(Repair filesystem)"
-    fi
-
-    rm -r /tmp/.xfs
-    return $_ret
+fsck_drv_btrfs() {
+    # btrfs fsck is not necessary... Either it mounts or not
+    return 0
 }
 
 # common code for checkers that follow usual subset of options and return codes
@@ -141,48 +129,51 @@ fsck_drv_std() {
 
 # checks single filesystem, relying on specific "driver"; we don't rely on
 # automatic checking based on fstab, so empty one is passed;
-# takes 3 arguments - device, filesystem, additional fsck options;
+# takes 4 arguments - device, filesystem, filesystem options, additional fsck options;
 # first 2 arguments are mandatory (fs may be auto or "")
 # returns 255 if filesystem wasn't checked at all (e.g. due to lack of
 # necessary tools or insufficient options)
 fsck_single() {
-    local FSTAB_FILE=/etc/fstab.fslib
+    local FSTAB_FILE=/etc/fstab.empty
     local _dev="$1"
     local _fs="${2:-auto}"
-    local _fop="$3"
+    local _fsopts="$3"
+    local _fop="$4"
     local _drv
 
     [ $# -lt 2 ] && return 255
-
+    # if UUID= marks more than one device, take only the first one
+    [ -e "$_dev" ] || _dev=$(devnames "$_dev"| while read line; do if [ -n "$line" ]; then echo $line; break;fi;done)
+    [ -e "$_dev" ] || return 255
     _fs=$(det_fs "$_dev" "$_fs")
     fsck_able "$_fs" || return 255
 
     info "Checking $_fs: $_dev"
     export FSTAB_FILE
-    eval "$_drv" "\"$_dev\"" "\"$_fop\""
+    eval "$_drv"
     return $?
 }
 
 # takes list of filesystems to check in parallel; we don't rely on automatic
 # checking based on fstab, so empty one is passed
 fsck_batch() {
-    local FSTAB_FILE=/etc/fstab.fslib
+    local FSTAB_FILE=/etc/fstab.empty
     local _drv=fsck
     local _dev
     local _ret
     local _out
 
-    [ $# -eq 0 ] && return 255
+    [ $# -eq 0 ] || ! type fsck >/dev/null 2>&1 && return 255
 
     info "Checking filesystems (fsck -M -T -a):"
     for _dev in "$@"; do
         info "    $_dev"
     done
 
+    export FSTAB_FILE
     _out="$(fsck -M -T "$@" -- -a)"
     _ret=$?
 
-    export FSTAB_FILE
     fsck_tail
 
     return $_ret

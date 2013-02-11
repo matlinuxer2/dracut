@@ -3,6 +3,7 @@
 # ex: ts=8 sw=4 sts=4 et filetype=sh
 
 check() {
+    [[ "$mount_needs" ]] && return 1
     [ -x /sbin/bootchartd ] || return 1
     return 255
 }
@@ -12,19 +13,17 @@ depends() {
 }
 
 install() {
-    inst /sbin/bootchartd
-    inst /bin/bash
     inst_symlink /init /sbin/init
     inst_dir /lib/bootchart/tmpfs
-    inst /lib/bootchart/bootchart-collector
-    inst /etc/bootchartd.conf
-    inst /sbin/accton
-    inst /usr/bin/pkill /bin/pkill
-    inst /bin/echo
-    inst /bin/grep
-    inst /bin/usleep
-    inst /usr/bin/[  /bin/[
 
-    mknod -m 0666 "${initdir}/dev/null" c 1 3
+    dracut_install bootchartd bash \
+        /lib/bootchart/bootchart-collector /etc/bootchartd.conf \
+        accton \
+        echo \
+        grep \
+        usleep
+
+    inst /usr/bin/pkill /bin/pkill
+    inst /usr/bin/[  /bin/[
 }
 

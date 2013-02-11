@@ -5,24 +5,17 @@
 # Format:
 #       ip=[dhcp|on|any]
 #
-#       ip=<interface>:[dhcp|on|any]
+#       ip=<interface>:[dhcp|on|any][:[<mtu>][:<macaddr>]]
 #
-#       ip=<client-IP-number>:<server-id>:<gateway-IP-number>:<netmask>:<client-hostname>:<interface>:[dhcp|on|any|none|off]
+#       ip=<client-IP-number>:<server-IP-number>:<gateway-IP-number>:<netmask>:<client-hostname>:<interface>:{dhcp|on|any|none|off}[:[<mtu>][:<macaddr>]]
 #
 # When supplying more than only ip= line, <interface> is mandatory and
 # bootdev= must contain the name of the primary interface to use for
 # routing,dns,dhcp-options,etc.
 #
 
-type getarg >/dev/null 2>&1 || . /lib/dracut-lib.sh
-
-# Check if ip= lines should be used
-if getarg ip= >/dev/null ; then
-    if [ -z "$netroot" ] ; then
-        echo "Warning: No netboot configured, ignoring ip= lines"
-        return;
-    fi
-fi
+command -v getarg >/dev/null          || . /lib/dracut-lib.sh
+command -v ibft_to_cmdline >/dev/null || . /lib/net-lib.sh
 
 # Don't mix BOOTIF=macaddr from pxelinux and ip= lines
 getarg ip= >/dev/null && getarg BOOTIF= >/dev/null && \
@@ -38,63 +31,30 @@ fi
 
 # Count ip= lines to decide whether we need bootdev= or not
 if [ -z "$NEEDBOOTDEV" ] ; then
-    local count=0
+    count=0
     for p in $(getargs ip=); do
         count=$(( $count + 1 ))
     done
     [ $count -gt 1 ] && NEEDBOOTDEV=1
 fi
+unset count
 
 # If needed, check if bootdev= contains anything usable
+BOOTDEV=$(getarg bootdev=)
+
 if [ -n "$NEEDBOOTDEV" ] ; then
-    BOOTDEV=$(getarg bootdev=) || die "Please supply bootdev argument for multiple ip= lines"
-    [ -z "$BOOTDEV" ] && die "Bootdev argument is empty"
+    [ -z "$BOOTDEV" ] && warn "Please supply bootdev argument for multiple ip= lines"
 fi
 
-if [ "ibft" = "$(getarg ip=)" ]; then
-    modprobe iscsi_ibft
-    num=0
-    (
-	for iface in /sys/firmware/ibft/ethernet*; do
-	    [ -e ${iface}/mac ] || continue
-            ifname_mac=$(read a < ${iface}/mac; echo $a)
-	    [ -z "$ifname_mac" ] && continue
-            unset dev
-            for ifname in $(getargs ifname=); do
-		if strstr "$ifname" "$ifname_mac"; then
-		    dev=${ifname%%:*}
-                    break
-                fi
-	    done
-            if [ -z "$dev" ]; then
-		ifname_if=ibft$num
-		num=$(( $num + 1 ))
-		echo "ifname=$ifname_if:$ifname_mac"
-		dev=$ifname_if
-	    fi
-
-	    dhcp=$(read a < ${iface}/dhcp; echo $a)
-	    if [ -n "$dhcp" ]; then
-		echo "ip=$dev:dhcp"
-	    else
-		ip=$(read a < ${iface}/ip-addr; echo $a)
-		gw=$(read a < ${iface}/gateway; echo $a)
-		mask=$(read a < ${iface}/subnet-mask; echo $a)
-		hostname=$(read a < ${iface}/hostname; echo $a)
-		echo "ip=$ip::$gw:$mask:$hostname:$dev:none"
-	    fi
-	done
-    ) >> /etc/cmdline
-    # reread cmdline
-    unset CMDLINE
-fi
+# If ibft is requested, read ibft vals and write ip=XXX cmdline args
+[ "ibft" = "$(getarg ip=)" ] && ibft_to_cmdline
 
 # Check ip= lines
 # XXX Would be nice if we could errorcheck ip addresses here as well
 for p in $(getargs ip=); do
     ip_to_var $p
 
-    # skip ibft
+    # skip ibft since we did it above
     [ "$autoconf" = "ibft" ] && continue
 
     # We need to have an ip= line for the specified bootdev
@@ -110,7 +70,7 @@ for p in $(getargs ip=); do
     case $autoconf in
         error) die "Error parsing option 'ip=$p'";;
         bootp|rarp|both) die "Sorry, ip=$autoconf is currenty unsupported";;
-        none|off) \
+        none|off)
             [ -z "$ip" ] && \
             die "For argument 'ip=$p'\nValue '$autoconf' without static configuration does not make sense"
             [ -z "$mask" ] && \
@@ -136,9 +96,6 @@ for p in $(getargs ip=); do
         # IFACES list for later use
         IFACES="$IFACES $dev"
     fi
-
-    # Small optimization for udev rules
-    [ -z "$NEEDBOOTDEV" ] && [ -n "$dev" ] && BOOTDEV=$dev
 
     # Do we need to check for specific options?
     if [ -n "$NEEDDHCP" ] || [ -n "$DHCPORSERVER" ] ; then

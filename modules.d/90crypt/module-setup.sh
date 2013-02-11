@@ -7,20 +7,25 @@ check() {
     # if cryptsetup is not installed, then we cannot support encrypted devices.
     type -P cryptsetup >/dev/null || return 1
 
-    . $dracutfunctions
-
-    is_crypt() { [[ $(get_fs_type /dev/block/$1) = crypto_LUKS ]]; }
-
-    [[ $hostonly ]] && {
-        _rootdev=$(find_root_block_device)
-        if [[ $_rootdev ]]; then
-            # root lives on a block device, so we can be more precise about
-            # hostonly checking
-            check_block_and_slaves is_crypt "$_rootdev" || return 1
-        else
-            # root is not on a block device, use the shotgun approach
-            blkid | grep -q crypto\?_LUKS || return 1
+    check_crypt() {
+        local dev=$1 fs=$2
+        [[ $fs = "crypto_LUKS" ]] || return 1
+        ID_FS_UUID=$(udevadm info --query=property --name=$dev \
+            | while read line; do
+                [[ ${line#ID_FS_UUID} = $line ]] && continue
+                eval "$line"
+                echo $ID_FS_UUID
+                break
+                done)
+        [[ ${ID_FS_UUID} ]] || return 1
+        if ! [[ $kernel_only ]]; then
+            echo " rd.luks.uuid=luks-${ID_FS_UUID} " >> "${initdir}/etc/cmdline.d/90crypt.conf"
         fi
+        return 0
+    }
+
+    [[ $hostonly ]] || [[ $mount_needs ]] && {
+        for_each_host_dev_fs check_crypt || return 1
     }
 
     return 0
@@ -37,12 +42,22 @@ installkernel() {
 
 install() {
     dracut_install cryptsetup rmdir readlink umount
-    inst "$moddir"/cryptroot-ask.sh /sbin/cryptroot-ask
-    inst "$moddir"/probe-keydev.sh /sbin/probe-keydev
+    inst_script "$moddir"/cryptroot-ask.sh /sbin/cryptroot-ask
+    inst_script "$moddir"/probe-keydev.sh /sbin/probe-keydev
     inst_hook cmdline 10 "$moddir/parse-keydev.sh"
     inst_hook cmdline 30 "$moddir/parse-crypt.sh"
-    inst_hook pre-pivot 30 "$moddir/crypt-cleanup.sh"
-    inst_simple /etc/crypttab
-    inst "$moddir/crypt-lib.sh" "/lib/dracut-crypt-lib.sh"
-}
+    inst_hook cleanup 30 "$moddir/crypt-cleanup.sh"
+    [[ $hostonly ]]  && inst_simple /etc/crypttab
+    inst_simple "$moddir/crypt-lib.sh" "/lib/dracut-crypt-lib.sh"
 
+    dracut_install -o \
+        $systemdutildir/system-generators/systemd-cryptsetup-generator \
+        $systemdutildir/system-generators/systemd-cryptsetup-generator \
+        $systemdutildir/systemd-cryptsetup \
+        $systemdsystemunitdir/systemd-ask-password-console.path \
+        $systemdsystemunitdir/systemd-ask-password-console.service \
+        $systemdsystemunitdir/cryptsetup.target \
+        $systemdsystemunitdir/sysinit.target.wants/cryptsetup.target \
+        systemd-ask-password systemd-tty-ask-password-agent
+    inst_script "$moddir"/crypt-run-generator.sh /sbin/crypt-run-generator
+}

@@ -7,7 +7,7 @@
 [ -z "$root" ] && root=$(getarg root=)
 
 # support legacy syntax of passing liveimg and then just the base root
-if getargbool 0 rd.live.image -y liveimg; then
+if getargbool 0 rd.live.image -d -y liveimg; then
     liveroot="live:$root"
 fi
 
@@ -16,6 +16,8 @@ if [ "${root%%:*}" = "live" ] ; then
 fi
 
 [ "${liveroot%%:*}" = "live" ] || return
+
+modprobe -q loop
 
 case "$liveroot" in
     live:LABEL=*|LABEL=*) \
@@ -41,7 +43,9 @@ case "$liveroot" in
     live:/*.[Ii][Mm][Gg]|/*.[Ii][Mm][Gg])
         [ -f "${root#live:}" ] && rootok=1 ;;
 esac
-info "root was $root, liveroot is now $liveroot"
+info "root was $liveroot, is now $root"
 
 # make sure that init doesn't complain
 [ -z "$root" ] && root="live"
+
+wait_for_dev /dev/mapper/live-rw

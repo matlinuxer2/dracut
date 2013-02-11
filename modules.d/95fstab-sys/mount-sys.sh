@@ -11,20 +11,27 @@ fstab_mount() {
     info "Mounting from $1"
     while read _dev _mp _fs _opts _dump _pass _rest; do
         [ -z "${_dev%%#*}" ] && continue # Skip comment lines
-        if [ ! -e "$_dev" ]; then
-            warn "Device $_dev doesn't exist, skipping mount."
-            continue
-        fi
+        ismounted $_mp && continue # Skip mounted filesystem
         if [ "$_pass" -gt 0 ] && ! strstr "$_opts" _netdev; then
-            fsck_single "$_dev" "$_fs"
+            fsck_single "$_dev" "$_fs" "$_opts"
         fi
         _fs=$(det_fs "$_dev" "$_fs")
         info "Mounting $_dev"
-        mount -v -t $_fs -o $_opts $_dev $NEWROOT/$_mp 2>&1 | vinfo
+        if [ -d "$NEWROOT/$_mp" ]; then
+            mount -v -t $_fs -o $_opts $_dev "$NEWROOT/$_mp" 2>&1 | vinfo
+        else
+            [ -d "$_mp" ] || mkdir -p "$_mp"
+            mount -v -t $_fs -o $_opts $_dev $_mp 2>&1 | vinfo
+        fi
     done < $1
     return 0
 }
 
-for r in $NEWROOT /; do
-    fstab_mount "$r/etc/fstab.sys" && break
-done
+[ -f /etc/fstab ] && fstab_mount /etc/fstab
+
+# prefer $NEWROOT/etc/fstab.sys over local /etc/fstab.sys
+if [ -f $NEWROOT/etc/fstab.sys ]; then
+    fstab_mount $NEWROOT/etc/fstab.sys
+elif [ -f /etc/fstab.sys ]; then
+    fstab_mount /etc/fstab.sys
+fi

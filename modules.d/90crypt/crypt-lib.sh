@@ -47,7 +47,7 @@ ask_for_password() {
 
     { flock -s 9;
         # Prompt for password with plymouth, if installed and running.
-        if [ -x /bin/plymouth ]; then
+        if [ -x /bin/plymouth ] && /bin/plymouth --ping; then
             /bin/plymouth ask-for-password \
                 --prompt "$ply_prompt" --number-of-tries=$ply_tries \
                 --command="$ply_cmd"
@@ -98,43 +98,6 @@ test_dev() {
     rmdir "$mount_point"
 
     return $ret
-}
-
-# Get kernel name for given device.  Device may be the name too (then the same
-# is returned), a symlink (full path), UUID (prefixed with "UUID=") or label
-# (prefixed with "LABEL=").  If just a beginning of the UUID is specified or
-# even an empty, function prints all device names which UUIDs match - every in
-# single line.
-#
-# NOTICE: The name starts with "/dev/".
-#
-# Example:
-#   devnames UUID=123
-# May print:
-#   /dev/dm-1
-#   /dev/sdb1
-#   /dev/sdf3
-devnames() {
-    local dev="$1"; local d; local names
-
-    case "$dev" in
-    UUID=*)
-        dev="$(foreach_uuid_until '! blkid -U $___' "${dev#UUID=}")" \
-            && return 255
-        [ -z "$dev" ] && return 255
-        ;;
-    LABEL=*) dev="$(blkid -L "${dev#LABEL=}")" || return 255 ;;
-    /dev/?*) ;;
-    *) return 255 ;;
-    esac
-
-    for d in $dev; do
-        names="$names
-$(readlink -e -q "$d")" || return 255
-    done
-
-    echo "${names#
-}"
 }
 
 # match_dev devpattern dev
@@ -202,8 +165,15 @@ readkey() {
     local keydev="$2"
     local device="$3"
 
-    local mntp=$(mkuniqdir /mnt keydev)
-    mount -r "$keydev" "$mntp" || die 'Mounting rem. dev. failed!'
+    # This creates a unique single mountpoint for *, or several for explicitly
+    # given LUKS devices. It accomplishes unlocking multiple LUKS devices with
+    # a single password entry.
+    local mntp="/mnt/$(str_replace "keydev-$keydev-$keypath" '/' '-')"
+
+    if [ ! -d "$mntp" ]; then
+        mkdir "$mntp"
+        mount -r "$keydev" "$mntp" || die 'Mounting rem. dev. failed!'
+    fi
 
     case "${keypath##*.}" in
         gpg)
@@ -214,9 +184,22 @@ readkey() {
                 die "No GPG support to decrypt '$keypath' on '$keydev'."
             fi
             ;;
+        img)
+            if [ -f /lib/dracut-crypt-loop-lib.sh ]; then
+                . /lib/dracut-crypt-loop-lib.sh
+                loop_decrypt "$mntp" "$keypath" "$keydev" "$device"
+                initqueue --onetime --finished --unique --name "crypt-loop-cleanup-99-${mntp##*/}" \
+                    $(command -v umount) "$mntp; " $(command -v rmdir) "$mntp"
+                return 0
+            else
+                die "No loop file support to decrypt '$keypath' on '$keydev'."
+            fi
+            ;;
         *) cat "$mntp/$keypath" ;;
     esac
 
+    # General unmounting mechanism, modules doing custom cleanup should return earlier
+    # and install a pre-pivot cleanup hook
     umount "$mntp"
     rmdir "$mntp"
 }
