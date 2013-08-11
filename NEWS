@@ -1,3 +1,148 @@
+dracut-031
+==========
+- do not include the resume dracut module in hostonly mode,
+  if no swap is present
+- don't warn twice about omitted modules
+- use systemd-cat for logging on systemd systems, if logfile is unset
+- fixed PARTUUID parsing
+- support kernel module signing keys
+- do not install the usrmount dracut module in hostonly mode,
+  if /sbin/init does not live in /usr
+- add debian udev rule files
+- add support for bcache
+- network: handle bootif style interfaces
+  e.g. ip=77-77-6f-6f-64-73:dhcp
+- add support for kmod static devnodes
+- add vlan support for iBFT
+
+Contributions from:
+Harald Hoyer
+Amadeusz Żołnowski
+Brandon Philips
+Colin Walters
+James Lee
+Kyle McMartin
+Peter Jones
+
+dracut-030
+==========
+- support new persistent network interface names
+- fix findmnt calls, prevents hang on stale NFS mounts
+- add systemd.slice and slice.target units
+- major shell cleanup
+- support root=PARTLABEL= and root=PARTUUID=
+- terminfo: only install l/linux v/vt100 and v/vt220
+- unset all LC_* and LANG, 10% faster
+- fixed dependency loop for dracut-cmdline.service
+- do not wait_for_dev for the root devices
+- do not wait_for_dev for devices, if dracut-initqueue is not needed
+- support early microcode loading with --early-microcode
+- dmraid, let dmraid setup its own partitions
+- sosreport renamed to rdsosreport
+
+Contributions from:
+Harald Hoyer
+Konrad Rzeszutek Wilk
+WANG Chao
+
+dracut-029
+==========
+- wait for IPv6 autoconfiguration
+- i18n: make the default font configurable
+  To set the default font for your distribution, add
+  i18n_default_font="latarcyrheb-sun16"
+  to your /lib/dracut/dracut.conf.d/01-dist.conf distribution config.
+- proper handle "rd.break" in systemd mode before switch-root
+- systemd: make unit files symlinks
+- build without dash requirement
+- add dracut-shutdown.service.8 manpage
+- handle MACs for "ip="
+  "ip=77-77-6f-6f-64-73:dhcp"
+- don't explode when mixing BOOTIF and ip=
+- 90lvm/module-setup.sh: redirect error message of lvs to /dev/null
+
+Contributions from:
+Harald Hoyer
+Will Woods
+Baoquan He
+
+dracut-028
+==========
+- full integration of crypto devs in systemd logic
+- support for bridge over team and vlan tagged team
+- support multiple bonding interfaces
+- new kernel command line param "rd.action_on_fail"
+  to control the emergency action
+- support for bridge over a vlan tagged interface
+- support for "iso-scan/filename" kernel parameter
+- lsinitrd got some love and does not use "file" anymore
+- fixed issue with noexec mounted tmp dirs
+- FIPS mode fixed
+- dracut_install got some love
+- fixed some /usr mounting problems
+- ifcfg dracut module got some love and fixes
+- default installed font is now latarcyrheb-sun16
+- new parameters rd.live.dir and rd.live.squashimg
+- lvm: add tools for thin provisioning
+- also install non-hwcap libs
+- setup correct system time and time zone in initrd
+- s390: fixed cms setup
+- add systemd-udevd persistent network interface naming
+
+Contributions from:
+Harald Hoyer
+Kamil Rytarowski
+WANG Chao
+Baoquan He
+Adam Williamson
+Colin Guthrie
+Dan Horák
+Dave Young
+Dennis Gilmore
+Dennis Schridde
+
+dracut-027
+==========
+- dracut now has bash-completion
+- require bash version 4
+- systemd module now requires systemd >= 199
+- dracut makes use of native systemd initrd units
+- added hooks for new-kernel-pkg and kernel-install
+- hostonly is now default for fedora
+- comply with the BootLoaderSpec paths
+  http://www.freedesktop.org/wiki/Specifications/BootLoaderSpec
+- added rescue module
+- host_fs_types is now a hashmap
+- new dracut argument "--regenerate-all"
+- new dracut argument "--noimageifnotneeded"
+- new man page dracut.bootup
+- install all host filesystem drivers
+- use -D_FILE_OFFSET_BITS=64 to build dracut-install
+
+dracut-026
+==========
+- introduce /usr/lib/dracut/dracut.conf.d/ drop-in directory
+
+  /usr/lib/dracut/dracut.conf.d/*.conf can be overwritten by the same
+  filenames in /etc/dracut.conf.d.
+
+  Packages should use /usr/lib/dracut/dracut.conf.d rather than
+  /etc/dracut.conf.d for drop-in configuration files.
+
+  /etc/dracut.conf and /etc/dracut.conf.d belong to the system administrator.
+
+- uses systemd-198 native initrd units
+- totally rely on the fstab-generator in systemd mode for block devices
+- dracut systemd now uses dracut.target rather than basic.target
+- dracut systemd services optimize themselves away
+- fixed hostonly parameter generation
+- turn off curl globbing (fixes IPv6)
+- modify the udev rules on install and not runtime time
+- enable initramfs building without kernel modules (fixed regression)
+- in the initqueue/timeout,
+  reset the main loop counter, as we see new udev events or initqueue/work
+- fixed udev rule installation
+
 dracut-025
 ==========
 - do not strip signed kernel modules

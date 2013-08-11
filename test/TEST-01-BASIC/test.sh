@@ -11,16 +11,16 @@ test_run() {
     $testdir/run-qemu \
 	-hda $TESTDIR/root.ext3 \
 	-hdb $TESTDIR/result \
-	-m 256M -nographic \
+	-m 256M -smp 2 -nographic \
 	-net none -kernel /boot/vmlinuz-$KVERSION \
 	-watchdog i6300esb -watchdog-action poweroff \
 	-append "root=LABEL=dracut rw systemd.log_level=debug systemd.log_target=console rd.retry=3 rd.debug console=ttyS0,115200n81 $DEBUGFAIL" \
 	-initrd $TESTDIR/initramfs.testing || return 1
-    grep -m 1 -q dracut-root-block-success $TESTDIR/result || return 1
+    grep -F -m 1 -q dracut-root-block-success $TESTDIR/result || return 1
 }
 
 test_setup() {
-    rm -f $TESTDIR/root.ext3
+    rm -f -- $TESTDIR/root.ext3
     # Create the blank file to use as a root filesystem
     dd if=/dev/null of=$TESTDIR/root.ext3 bs=1M seek=80
 
@@ -40,6 +40,7 @@ test_setup() {
 	inst "$basedir/modules.d/40network/dhclient-script.sh" "/sbin/dhclient-script"
 	inst "$basedir/modules.d/40network/ifup.sh" "/sbin/ifup"
 	dracut_install grep
+        inst_simple /etc/os-release
 	inst ./test-init.sh /sbin/init
 	find_binary plymouth >/dev/null && dracut_install plymouth
 	(cd "$initdir"; mkdir -p dev sys proc etc var/run tmp )
@@ -53,6 +54,7 @@ test_setup() {
 	. $basedir/dracut-functions.sh
 	dracut_install sfdisk mkfs.ext3 poweroff cp umount sync
 	inst_hook initqueue 01 ./create-root.sh
+        inst_hook initqueue/finished 01 ./finished-false.sh
 	inst_simple ./99-idesymlinks.rules /etc/udev/rules.d/99-idesymlinks.rules
     )
 
@@ -64,16 +66,16 @@ test_setup() {
 	-d "piix ide-gd_mod ata_piix ext3 sd_mod" \
         --nomdadmconf \
 	-f $TESTDIR/initramfs.makeroot $KVERSION || return 1
-    rm -rf $TESTDIR/overlay
+    rm -rf -- $TESTDIR/overlay
     # Invoke KVM and/or QEMU to actually create the target filesystem.
 
     $testdir/run-qemu \
 	-hda $TESTDIR/root.ext3 \
-	-m 256M -nographic -net none \
+	-m 256M -smp 2 -nographic -net none \
 	-kernel "/boot/vmlinuz-$kernel" \
 	-append "root=/dev/dracut/root rw rootfstype=ext3 quiet console=ttyS0,115200n81 selinux=0" \
 	-initrd $TESTDIR/initramfs.makeroot  || return 1
-    grep -m 1 -q dracut-root-block-created $TESTDIR/root.ext3 || return 1
+    grep -F -m 1 -q dracut-root-block-created $TESTDIR/root.ext3 || return 1
 
 
     (
@@ -85,7 +87,7 @@ test_setup() {
     )
     sudo $basedir/dracut.sh -l -i $TESTDIR/overlay / \
 	-a "debug watchdog" \
-	-d "piix ide-gd_mod ata_piix ext3 sd_mod i6300esbwdt" \
+	-d "piix ide-gd_mod ata_piix ext3 sd_mod i6300esb ib700wdt" \
 	-f $TESTDIR/initramfs.testing $KVERSION || return 1
 
 #	-o "plymouth network md dmraid multipath fips caps crypt btrfs resume dmsquash-live dm"

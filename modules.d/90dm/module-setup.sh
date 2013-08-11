@@ -29,8 +29,13 @@ install() {
     # Gentoo ebuild for LVM2 prior to 2.02.63-r1 doesn't install above rules
     # files, but provides the one below:
     inst_rules 64-device-mapper.rules
+    # debian udev rules
+    inst_rules 60-persistent-storage-dm.rules 55-dm.rules
 
     inst_rules "$moddir/11-dm.rules"
+
+    inst_rules "$moddir/59-persistent-storage-dm.rules"
+    prepare_udev_rules 59-persistent-storage-dm.rules
 
     inst_hook shutdown 30 "$moddir/dm-shutdown.sh"
 }

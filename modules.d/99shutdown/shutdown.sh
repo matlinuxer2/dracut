@@ -8,11 +8,17 @@
 # Harald Hoyer <harald@redhat.com>
 ACTION="$1"
 
-exec </dev/console >>/dev/console 2>>/dev/console
+[ -w /dev/console ] && exec </dev/console >>/dev/console 2>>/dev/console
 
 export TERM=linux
 export PATH=/usr/sbin:/usr/bin:/sbin:/bin
 . /lib/dracut-lib.sh
+
+mkdir /oldsys
+for i in sys proc run dev; do
+    mkdir /oldsys/$i
+    mount --move /oldroot/$i /oldsys/$i
+done
 
 # if "kexec" was installed after creating the initramfs, we try to copy it from the real root
 # libz normally is pulled in via kmod/modprobe and udevadm
@@ -27,10 +33,6 @@ trap "emergency_shell --shutdown shutdown Signal caught!" 0
 getarg 'rd.break=pre-shutdown' && emergency_shell --shutdown pre-shutdown "Break before pre-shutdown"
 
 source_hook pre-shutdown
-
-if ! ( [ -x /bin/plymouth ] && /bin/plymouth --quit ); then
-    [ -x /oldroot/bin/plymouth ] && /oldroot/bin/plymouth --quit
-fi
 
 warn "Killing all remaining processes"
 
@@ -84,7 +86,7 @@ _check_shutdown() {
         [ -e "$__f" ] || continue
         ( . "$__f" $1 )
         if [ $? -eq 0 ]; then
-            rm -f $__f
+            rm -f -- $__f
             __s=0
         fi
     done

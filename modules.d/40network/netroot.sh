@@ -20,13 +20,22 @@ command -v setup_net >/dev/null || . /lib/net-lib.sh
 netif=$1
 [ -e "/tmp/net.bootdev" ] && read netif < /tmp/net.bootdev
 
+case "$netif" in
+    ??:??:??:??:??:??)  # MAC address
+        for i in /sys/class/net/*/address; do
+            mac=$(cat $i)
+            if [ "$mac" = "$netif" ]; then
+                i=${i%/address}
+                netif=${i##*/}
+                break
+            fi
+        done
+esac
+
 # Figure out the handler for root=dhcp by recalling all netroot cmdline
 # handlers when this is not called from manually network bringing up.
 if [ -z "$2" ]; then
     if [ "$netroot" = "dhcp" ] || [ "$netroot" = "dhcp6" ] ; then
-        # Unset root so we can check later
-        unset root
-
         # Load dhcp options
         [ -e /tmp/dhclient.$netif.dhcpopts ] && . /tmp/dhclient.$netif.dhcpopts
 
@@ -67,6 +76,7 @@ source_hook netroot $netif
 # Run the handler; don't store the root, it may change from device to device
 # XXX other variables to export?
 if $handler $netif $netroot $NEWROOT; then
+    rm -f -- $hookdir/initqueue/finished/dhcp.sh
     # Network rootfs mount successful - save interface info for ifcfg etc.
     save_netinfo $netif
 fi

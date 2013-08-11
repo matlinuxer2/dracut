@@ -18,7 +18,7 @@ client_run() {
 	-hda $TESTDIR/root.btrfs \
 	-hdb $TESTDIR/usr.btrfs \
 	-hdc $TESTDIR/result \
-	-m 256M -nographic \
+	-m 256M -smp 2 -nographic \
 	-net none -kernel /boot/vmlinuz-$KVERSION \
 	-watchdog i6300esb -watchdog-action poweroff \
 	-append "root=LABEL=dracut $client_opts quiet rd.retry=3 rd.info console=ttyS0,115200n81 selinux=0 rd.debug $DEBUGFAIL" \
@@ -29,7 +29,7 @@ client_run() {
         return 1
     fi
 
-    if ! grep -m 1 -q dracut-root-block-success $TESTDIR/result; then
+    if ! grep -F -m 1 -q dracut-root-block-success $TESTDIR/result; then
 	echo "CLIENT TEST END: $test_name [FAILED]"
         return 1
     fi
@@ -45,8 +45,8 @@ test_run() {
 }
 
 test_setup() {
-    rm -f $TESTDIR/root.btrfs
-    rm -f $TESTDIR/usr.btrfs
+    rm -f -- $TESTDIR/root.btrfs
+    rm -f -- $TESTDIR/usr.btrfs
     # Create the blank file to use as a root filesystem
     dd if=/dev/null of=$TESTDIR/root.btrfs bs=1M seek=160
     dd if=/dev/null of=$TESTDIR/usr.btrfs bs=1M seek=160
@@ -68,6 +68,7 @@ test_setup() {
 	inst "$basedir/modules.d/40network/ifup.sh" "/sbin/ifup"
 	dracut_install grep
         inst_simple ./fstab /etc/fstab
+        inst_simple /etc/os-release
 	inst ./test-init.sh /sbin/init
 	find_binary plymouth >/dev/null && dracut_install plymouth
 	(cd "$initdir"; mkdir -p dev sys proc etc var/run tmp )
@@ -81,6 +82,7 @@ test_setup() {
 	. $basedir/dracut-functions.sh
 	dracut_install sfdisk mkfs.btrfs btrfs poweroff cp umount sync
 	inst_hook initqueue 01 ./create-root.sh
+        inst_hook initqueue/finished 01 ./finished-false.sh
 	inst_simple ./99-idesymlinks.rules /etc/udev/rules.d/99-idesymlinks.rules
     )
 
@@ -99,16 +101,16 @@ test_setup() {
 #    echo $TESTDIR/overlay
 #    echo $TESTDIR/initramfs.makeroot
 #exit 1
-    rm -rf $TESTDIR/overlay
+    rm -rf -- $TESTDIR/overlay
 
     $testdir/run-qemu \
 	-hda $TESTDIR/root.btrfs \
 	-hdb $TESTDIR/usr.btrfs \
-	-m 256M -nographic -net none \
+	-m 256M -smp 2 -nographic -net none \
 	-kernel "/boot/vmlinuz-$kernel" \
 	-append "root=/dev/dracut/root rw rootfstype=btrfs quiet console=ttyS0,115200n81 selinux=0" \
 	-initrd $TESTDIR/initramfs.makeroot  || return 1
-    grep -m 1 -q dracut-root-block-created $TESTDIR/root.btrfs || return 1
+    grep -F -m 1 -q dracut-root-block-created $TESTDIR/root.btrfs || return 1
 
 
     (
@@ -121,10 +123,10 @@ test_setup() {
     sudo $basedir/dracut.sh -l -i $TESTDIR/overlay / \
 	-a "debug watchdog" \
         -o "network" \
-	-d "piix ide-gd_mod ata_piix btrfs sd_mod i6300esbwdt" \
+	-d "piix ide-gd_mod ata_piix btrfs sd_mod i6300esb ib700wdt" \
 	-f $TESTDIR/initramfs.testing $KVERSION || return 1
 
-    rm -rf $TESTDIR/overlay
+    rm -rf -- $TESTDIR/overlay
 
 #	-o "plymouth network md dmraid multipath fips caps crypt btrfs resume dmsquash-live dm"
 }

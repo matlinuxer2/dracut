@@ -17,9 +17,6 @@ OLDPATH=$PATH
 PATH=/usr/sbin:/usr/bin:/sbin:/bin
 export PATH
 
-RD_DEBUG=""
-. /lib/dracut-lib.sh
-
 # mount some important things
 [ ! -d /proc/self ] && \
     mount -t proc -o nosuid,noexec,nodev proc /proc >/dev/null
@@ -37,12 +34,8 @@ if [ "$?" != "0" ]; then
     exit 1
 fi
 
-if [ -x /lib/systemd/systemd-timestamp ]; then
-    RD_TIMESTAMP=$(/lib/systemd/systemd-timestamp)
-else
-    read RD_TIMESTAMP _tmp < /proc/uptime
-    unset _tmp
-fi
+RD_DEBUG=""
+. /lib/dracut-lib.sh
 
 setdebug
 
@@ -53,6 +46,15 @@ fi
 if ! ismounted /dev; then
     echo "Cannot mount devtmpfs on /dev! Compile the kernel with CONFIG_DEVTMPFS!"
     exit 1
+fi
+
+# setup system time
+if [ -f /etc/adjtime ]; then
+    if strstr "$(cat /etc/adjtime)" LOCAL; then
+        hwclock --hctosys --localtime
+    else
+        hwclock --hctosys --utc
+    fi
 fi
 
 # prepare the /dev directory
@@ -76,12 +78,27 @@ if ! ismounted /run; then
     mount -t tmpfs -o mode=0755,nosuid,nodev,strictatime tmpfs /newrun >/dev/null 
     cp -a /run/* /newrun >/dev/null 2>&1
     mount --move /newrun /run
-    rm -fr /newrun
+    rm -fr -- /newrun
 fi
 
-trap "emergency_shell Signal caught!" 0
+if command -v kmod >/dev/null 2>/dev/null; then
+    kmod static-nodes --format=tmpfiles 2>/dev/null | \
+        while read type file mode a a a majmin; do
+        case $type in
+            d)
+                mkdir -m $mode -p $file
+                ;;
+            c)
+                mknod -m $mode $file $type ${majmin%:*} ${majmin#*:}
+                ;;
+        esac
+    done
+fi
+
+trap "action_on_fail Signal caught!" 0
 
 [ -d /run/initramfs ] || mkdir -p -m 0755 /run/initramfs
+[ -d /run/log ] || mkdir -p -m 0755 /run/log
 
 export UDEVVERSION=$(udevadm --version)
 if [ $UDEVVERSION -gt 166 ]; then
@@ -103,11 +120,12 @@ else
 fi
 
 [ -f /etc/initrd-release ] && . /etc/initrd-release
-[ -n "$VERSION" ] && info "dracut-$VERSION"
+[ -n "$VERSION_ID" ] && info "$NAME-$VERSION_ID"
 
 source_conf /etc/conf.d
 
 # run scriptlets to parse the command line
+make_trace_mem "hook cmdline" '1+:mem' '1+:iomem' '3+:slab'
 getarg 'rd.break=cmdline' -d 'rdbreak=cmdline' && emergency_shell -n cmdline "Break before cmdline"
 source_hook cmdline
 
@@ -117,11 +135,12 @@ source_hook cmdline
 export root rflags fstype netroot NEWROOT
 
 # pre-udev scripts run before udev starts, and are run only once.
+make_trace_mem "hook pre-udev" '1:shortmem' '2+:mem' '3+:slab'
 getarg 'rd.break=pre-udev' -d 'rdbreak=pre-udev' && emergency_shell -n pre-udev "Break before pre-udev"
 source_hook pre-udev
 
 # start up udev and trigger cold plugs
-/lib/systemd/systemd-udevd --daemon --resolve-names=never
+$systemdutildir/systemd-udevd --daemon --resolve-names=never
 
 UDEV_LOG_PRIO_ARG=--log-priority
 UDEV_QUEUE_EMPTY="udevadm settle --timeout=0"
@@ -135,6 +154,7 @@ getargbool 0 rd.udev.info -d -y rdudevinfo && udevadm control "$UDEV_LOG_PRIO_AR
 getargbool 0 rd.udev.debug -d -y rdudevdebug && udevadm control "$UDEV_LOG_PRIO_ARG=debug"
 udevproperty "hookdir=$hookdir"
 
+make_trace_mem "hook pre-trigger" '1:shortmem' '2+:mem' '3+:slab'
 getarg 'rd.break=pre-trigger' -d 'rdbreak=pre-trigger' && emergency_shell -n pre-trigger "Break before pre-trigger"
 source_hook pre-trigger
 
@@ -143,6 +163,7 @@ udevadm control --reload >/dev/null 2>&1 || :
 udevadm trigger --type=subsystems --action=add >/dev/null 2>&1
 udevadm trigger --type=devices --action=add >/dev/null 2>&1
 
+make_trace_mem "hook initqueue" '1:shortmem' '2+:mem' '3+:slab'
 getarg 'rd.break=initqueue' -d 'rdbreak=initqueue' && emergency_shell -n initqueue "Break before initqueue"
 
 RDRETRY=$(getarg rd.retry -d 'rd_retry=')
@@ -160,7 +181,7 @@ while :; do
     check_finished && break
 
     if [ -f $hookdir/initqueue/work ]; then
-        rm $hookdir/initqueue/work
+        rm -f -- $hookdir/initqueue/work
     fi
 
     for job in $hookdir/initqueue/*.sh; do
@@ -187,13 +208,14 @@ while :; do
         for job in $hookdir/initqueue/timeout/*.sh; do
             [ -e "$job" ] || break
             job=$job . $job
-            main_loop=0
+            udevadm settle --timeout=0 >/dev/null 2>&1 || main_loop=0
+            [ -f $hookdir/initqueue/work ] && main_loop=0
         done
     fi
 
     main_loop=$(($main_loop+1))
     [ $main_loop -gt $RDRETRY ] \
-        && { flock -s 9 ; emergency_shell "Could not boot."; } 9>/.console_lock
+        && { flock -s 9 ; action_on_fail "Could not boot." && break; } 9>/.console_lock
 done
 unset job
 unset queuetriggered
@@ -202,6 +224,7 @@ unset RDRETRY
 
 # pre-mount happens before we try to mount the root filesystem,
 # and happens once.
+make_trace_mem "hook pre-mount" '1:shortmem' '2+:mem' '3+:slab'
 getarg 'rd.break=pre-mount' -d 'rdbreak=pre-mount' && emergency_shell -n pre-mount "Break pre-mount"
 source_hook pre-mount
 
@@ -221,13 +244,13 @@ while :; do
             usable_root "$NEWROOT" && break;
             warn "$NEWROOT has no proper rootfs layout, ignoring and removing offending mount hook"
             umount "$NEWROOT"
-            rm -f "$f"
+            rm -f -- "$f"
         fi
     done
 
     i=$(($i+1))
     [ $i -gt 20 ] \
-        && { flock -s 9 ; emergency_shell "Can't mount root filesystem"; } 9>/.console_lock
+        && { flock -s 9 ; action_on_fail "Can't mount root filesystem" && break; } 9>/.console_lock
 done
 
 {
@@ -237,9 +260,11 @@ done
 
 # pre pivot scripts are sourced just before we doing cleanup and switch over
 # to the new root.
+make_trace_mem "hook pre-pivot" '1:shortmem' '2+:mem' '3+:slab'
 getarg 'rd.break=pre-pivot' -d 'rdbreak=pre-pivot' && emergency_shell -n pre-pivot "Break pre-pivot"
 source_hook pre-pivot
 
+make_trace_mem "hook cleanup" '1:shortmem' '2+:mem' '3+:slab'
 # pre pivot cleanup scripts are sourced just before we switch over to the new root.
 getarg 'rd.break=cleanup' -d 'rdbreak=cleanup' && emergency_shell -n cleanup "Break cleanup"
 source_hook cleanup
@@ -259,7 +284,7 @@ done
 [ "$INIT" ] || {
     echo "Cannot find init!"
     echo "Please check to make sure you passed a valid root filesystem!"
-    emergency_shell
+    action_on_fail
 }
 
 if [ $UDEVVERSION -lt 168 ]; then
@@ -267,8 +292,8 @@ if [ $UDEVVERSION -lt 168 ]; then
     udevadm control --stop-exec-queue
 
     HARD=""
-    while pidof systemd-udevd >/dev/null 2>&1; do
-        for pid in $(pidof systemd-udevd); do
+    while pidof udevd >/dev/null 2>&1; do
+        for pid in $(pidof udevd); do
             kill $HARD $pid >/dev/null 2>&1
         done
         HARD="-9"
@@ -299,7 +324,7 @@ for i in $(export -p); do
     esac
 done
 . /tmp/export.orig 2>/dev/null || :
-rm -f /tmp/export.orig
+rm -f -- /tmp/export.orig
 
 initargs=""
 read CLINE </proc/cmdline
@@ -338,7 +363,7 @@ fi
 wait_for_loginit
 
 # remove helper symlink
-[ -h /dev/root ] && rm -f /dev/root
+[ -h /dev/root ] && rm -f -- /dev/root
 
 getarg rd.break -d rdbreak && emergency_shell -n switch_root "Break before switch_root"
 info "Switching root"
@@ -361,13 +386,13 @@ if [ -f /etc/capsdrop ]; then
 	warn "Command:"
 	warn capsh --drop=$CAPS_INIT_DROP -- -c exec switch_root "$NEWROOT" "$INIT" $initargs
 	warn "failed."
-	emergency_shell
+	action_on_fail
     }
 else
     unset RD_DEBUG
     exec $SWITCH_ROOT "$NEWROOT" "$INIT" $initargs || {
 	warn "Something went very badly wrong in the initramfs.  Please "
 	warn "file a bug against dracut."
-	emergency_shell
+	action_on_fail
     }
 fi

@@ -12,9 +12,18 @@ depends() {
 }
 
 install() {
-    [ -x /lib/systemd/systemd-vconsole-setup ] && dracut_install /lib/systemd/systemd-vconsole-setup
+    if dracut_module_included "systemd"; then
+        [[ -f /etc/vconsole.conf ]] || return 0
+        unset FONT
+        unset KEYMAP
+        . /etc/vconsole.conf
+        # if vconsole.conf has no settings, do not include anything
+        [[ $FONT ]] || [[ $KEYMAP ]] || return 0
+    fi
+
+    dracut_install -o $systemdutildir/systemd-vconsole-setup
     KBDSUBDIRS=consolefonts,consoletrans,keymaps,unimaps
-    DEFAULT_FONT=LatArCyrHeb-16
+    DEFAULT_FONT="${i18n_default_font:-LatArCyrHeb-16}"
     I18N_CONF="/etc/locale.conf"
     VCONFIG_CONF="/etc/vconsole.conf"
 
@@ -86,9 +95,11 @@ install() {
     install_base() {
         dracut_install setfont loadkeys kbd_mode stty
 
-        inst ${moddir}/console_init.sh /lib/udev/console_init
-        inst_rules ${moddir}/10-console.rules
-        inst_hook cmdline 20 "${moddir}/parse-i18n.sh"
+        if ! dracut_module_included "systemd"; then
+            inst ${moddir}/console_init.sh /lib/udev/console_init
+            inst_rules ${moddir}/10-console.rules
+            inst_hook cmdline 20 "${moddir}/parse-i18n.sh"
+        fi
     }
 
     install_all_kbd() {
@@ -100,7 +111,7 @@ install() {
         done
 
         # remove unnecessary files
-        rm -f "${initdir}${kbddir}/consoletrans/utflist"
+        rm -f -- "${initdir}${kbddir}/consoletrans/utflist"
         find "${initdir}${kbddir}/" -name README\* -delete
         find "${initdir}${kbddir}/" -name '*.gz' -print -quit \
             | while read line; do
@@ -209,12 +220,6 @@ install() {
             done && break
             kbddir=''
         done
-
-        [[ ${kbddir} ]] || {
-            derror "Directories ${KBDSUBDIRS//,/, } not found.  Please" \
-                "inform us about the issue including your OS name and version."
-            return 1
-        }
 
         [[ -f $I18N_CONF && -f $VCONFIG_CONF ]] || \
             [[ ! ${hostonly} || ${i18n_vars} ]] || {

@@ -19,6 +19,9 @@ livedev="$1"
 # specified as their own things
 live_dir=$(getarg rd.live.dir -d live_dir)
 [ -z "$live_dir" ] && live_dir="LiveOS"
+squash_image=$(getarg rd.live.squashimg)
+[ -z "$squash_image" ] && squash_image="squashfs.img"
+
 getargbool 0 rd.live.ram -d -y live_ram && live_ram="yes"
 getargbool 0 rd.live.overlay.reset -d -y reset_overlay && reset_overlay="yes"
 getargbool 0 rd.live.overlay.readonly -d -y readonly_overlay && readonly_overlay="--readonly" || readonly_overlay=""
@@ -31,7 +34,7 @@ if [ "$fs" = "iso9660" -o "$fs" = "udf" ]; then
 fi
 getarg rd.live.check -d check || check=""
 if [ -n "$check" ]; then
-    [ -x /bin/plymouth ] && /bin/plymouth --hide-splash
+    type plymouth >/dev/null 2>&1 && plymouth --hide-splash
     if [ -n "$DRACUT_SYSTEMD" ]; then
         p=$(str_replace "$livedev" "-" '\x2d')
         systemctl start checkisomd5@${p}.service
@@ -42,15 +45,18 @@ if [ -n "$check" ]; then
         die "CD check failed!"
         exit 1
     fi
-    [ -x /bin/plymouth ] && /bin/plymouth --show-splash
+    type plymouth >/dev/null 2>&1 && plymouth --show-splash
 fi
 
 ln -s $livedev /run/initramfs/livedev
 
 # determine filesystem type for a filesystem image
 det_img_fs() {
+    udevadm settle
     blkid -s TYPE -u noraid -o value "$1"
 }
+
+modprobe squashfs
 
 for arg in $CMDLINE; do case $arg in ro|rw) liverw=$arg ;; esac; done
 # mount the backing of the live image first
@@ -110,18 +116,34 @@ do_live_overlay() {
         umount -l /run/initramfs/overlayfs || :
     fi
 
-    if [ -z "$setup" ]; then
-        if [ -n "$devspec" -a -n "$pathspec" ]; then
+    if [ -z "$setup" -o -n "$readonly_overlay" ]; then
+        if [ -n "$setup" ]; then
+            warn "Using temporary overlay."
+        elif [ -n "$devspec" -a -n "$pathspec" ]; then
             warn "Unable to find persistent overlay; using temporary"
             sleep 5
         fi
 
         dd if=/dev/null of=/overlay bs=1024 count=1 seek=$((512*1024)) 2> /dev/null
-        losetup $OVERLAY_LOOPDEV /overlay
+        if [ -n "$setup" -a -n "$readonly_overlay" ]; then
+            RO_OVERLAY_LOOPDEV=$( losetup -f )
+            losetup $RO_OVERLAY_LOOPDEV /overlay
+        else
+            losetup $OVERLAY_LOOPDEV /overlay
+        fi
     fi
 
     # set up the snapshot
-    echo 0 `blockdev --getsz $BASE_LOOPDEV` snapshot $BASE_LOOPDEV $OVERLAY_LOOPDEV p 8 | dmsetup create $readonly_overlay live-rw
+    sz=$(blockdev --getsz $BASE_LOOPDEV)
+    if [ -n "$readonly_overlay" ]; then
+        echo 0 $sz snapshot $BASE_LOOPDEV $OVERLAY_LOOPDEV p 8 | dmsetup create $readonly_overlay live-ro
+        base="/dev/mapper/live-ro"
+        over=$RO_OVERLAY_LOOPDEV
+    else
+        base=$BASE_LOOPDEV
+        over=$OVERLAY_LOOPDEV
+    fi
+    echo 0 $sz snapshot $base $over p 8 | dmsetup create live-rw
 }
 
 # live cd helper function
@@ -163,8 +185,8 @@ if [ -n "$FSIMG" ] ; then
 fi
 
 # we might have an embedded fs image on squashfs (compressed live)
-if [ -e /run/initramfs/live/${live_dir}/squashfs.img ]; then
-    SQUASHED="/run/initramfs/live/${live_dir}/squashfs.img"
+if [ -e /run/initramfs/live/${live_dir}/${squash_image} ]; then
+    SQUASHED="/run/initramfs/live/${live_dir}/${squash_image}"
 fi
 
 if [ -e "$SQUASHED" ] ; then

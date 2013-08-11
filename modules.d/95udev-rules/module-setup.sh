@@ -11,17 +11,17 @@ install() {
     dracut_install udevadm cat uname blkid \
         /etc/udev/udev.conf
 
-    [ -d ${initdir}/lib/systemd ] || mkdir -p ${initdir}/lib/systemd
-    for _i in ${systemdutildir}/systemd-udevd ${udevdir}/udevd /lib/systemd/systemd-udevd /sbin/udevd; do
+    [ -d ${initdir}/$systemdutildir ] || mkdir -p ${initdir}/$systemdutildir
+    for _i in ${systemdutildir}/systemd-udevd ${udevdir}/udevd /sbin/udevd; do
         [ -x "$_i" ] || continue
         inst "$_i"
 
-        if ! [[ -f  ${initdir}/lib/systemd/systemd-udevd ]]; then
-            ln -fs "$_i" ${initdir}/lib/systemd/systemd-udevd
+        if ! [[ -f  ${initdir}${systemdutildir}/systemd-udevd ]]; then
+            ln -fs "$_i" ${initdir}${systemdutildir}/systemd-udevd
         fi
         break
     done
-    if ! [[ -e ${initdir}/lib/systemd/systemd-udevd ]]; then
+    if ! [[ -e ${initdir}${systemdutildir}/systemd-udevd ]]; then
         derror "Cannot find [systemd-]udevd binary!"
         exit 1
     fi
@@ -31,17 +31,19 @@ install() {
         60-pcmcia.rules \
         50-udev.rules 95-late.rules \
         50-firmware.rules \
+        75-net-description.rules 80-net-name-slot.rules \
         "$moddir/59-persistent-storage.rules" \
         "$moddir/61-persistent-storage.rules"
 
-    inst_dir /run/udev
-    inst_dir /run/udev/rules.d
+    prepare_udev_rules 59-persistent-storage.rules 61-persistent-storage.rules
+    # debian udev rules
+    inst_rules 91-permissions.rules
 
     {
         for i in cdrom tape dialout floppy; do
             if ! egrep -q "^$i:" "$initdir/etc/group" 2>/dev/null; then
                 if ! egrep "^$i:" /etc/group 2>/dev/null; then
-                        case $i in 
+                        case $i in
                             cdrom)   echo "$i:x:11:";;
                             dialout) echo "$i:x:18:";;
                             floppy)  echo "$i:x:19:";;
@@ -70,11 +72,12 @@ install() {
         ${udevdir}/pcmcia-socket-startup \
         ${udevdir}/pcmcia-check-broken-cis
 
+    dracut_install -o /etc/pcmcia/config.opts
+
     [ -f /etc/arch-release ] && \
         inst_script "$moddir/load-modules.sh" /lib/udev/load-modules.sh
 
     inst_libdir_file "libnss_files*"
 
-    inst_hook pre-udev 10 "$moddir/udev-rules-prepare.sh"
 }
 

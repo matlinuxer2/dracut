@@ -3,7 +3,7 @@
 for x in 64-lvm.rules 70-mdadm.rules 99-mount-rules; do
     > "/etc/udev/rules.d/$x"
 done
-rm /etc/lvm/lvm.conf
+rm -f -- /etc/lvm/lvm.conf
 udevadm control --reload
 echo -n test >keyfile
 cryptsetup -q luksFormat /dev/sdb /keyfile
@@ -13,7 +13,7 @@ lvm pvcreate -ff  -y /dev/mapper/dracut_crypt_test && \
 lvm vgcreate dracut /dev/mapper/dracut_crypt_test && \
 lvm lvcreate -l 100%FREE -n root dracut && \
 lvm vgchange -ay && \
-mke2fs -j /dev/dracut/root && \
+mke2fs -L dracut -j /dev/dracut/root && \
 /sbin/tune2fs -e continue /dev/dracut/root && \
 mkdir -p /sysroot && \
 mount /dev/dracut/root /sysroot && \

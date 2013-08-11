@@ -16,7 +16,8 @@ run_server() {
         -hdb $TESTDIR/root.ext3 \
         -hdc $TESTDIR/iscsidisk2.img \
         -hdd $TESTDIR/iscsidisk3.img \
-        -m 256M -nographic \
+        -m 256M  -smp 2 \
+        -display none \
         -serial $SERIAL \
         -net nic,macaddr=52:54:00:12:34:56,model=e1000 \
         -net socket,listen=127.0.0.1:12330 \
@@ -41,13 +42,13 @@ run_client() {
 
     $testdir/run-qemu \
         -hda $TESTDIR/client.img \
-        -m 256M -nographic \
+        -m 256M -smp 2 -nographic \
         -net nic,macaddr=52:54:00:12:34:00,model=e1000 \
         -net socket,connect=127.0.0.1:12330 \
         -kernel /boot/vmlinuz-$KVERSION \
         -append "$* rw quiet rd.auto rd.retry=5 rd.debug rd.info  console=ttyS0,115200n81 selinux=0 $DEBUGFAIL" \
         -initrd $TESTDIR/initramfs.testing
-    if ! grep -m 1 -q iscsi-OK $TESTDIR/client.img; then
+    if ! grep -F -m 1 -q iscsi-OK $TESTDIR/client.img; then
 	echo "CLIENT TEST END: $test_name [FAILED - BAD EXIT]"
 	return 1
     fi
@@ -64,11 +65,11 @@ do_test_run() {
 
     run_client "root=iscsi" \
 	"root=iscsi:192.168.50.1::::iqn.2009-06.dracut:target0" \
-	"ip=192.168.50.101::192.168.50.1:255.255.255.0:iscsi-1:eth0:off" \
+	"ip=192.168.50.101::192.168.50.1:255.255.255.0:iscsi-1:ens3:off" \
 	|| return 1
 
     run_client "netroot=iscsi" \
-	"root=LABEL=sysroot ip=192.168.50.101::192.168.50.1:255.255.255.0:iscsi-1:eth0:off" \
+	"root=LABEL=sysroot ip=192.168.50.101::192.168.50.1:255.255.255.0:iscsi-1:ens3:off" \
 	"netroot=iscsi:192.168.50.1::::iqn.2009-06.dracut:target1 netroot=iscsi:192.168.50.1::::iqn.2009-06.dracut:target2" \
 	|| return 1
     return 0
@@ -83,7 +84,7 @@ test_run() {
     ret=$?
     if [[ -s $TESTDIR/server.pid ]]; then
         sudo kill -TERM $(cat $TESTDIR/server.pid)
-        rm -f $TESTDIR/server.pid
+        rm -f -- $TESTDIR/server.pid
     fi
     return $ret
 }
@@ -110,6 +111,7 @@ test_setup() {
             [ -f ${_terminfodir}/l/linux ] && break
         done
         dracut_install -o ${_terminfodir}/l/linux
+        inst_simple /etc/os-release
         inst ./client-init.sh /sbin/init
         (cd "$initdir"; mkdir -p dev sys proc etc var/run tmp )
         cp -a /etc/ld.so.conf* $initdir/etc
@@ -122,6 +124,7 @@ test_setup() {
         . $basedir/dracut-functions.sh
         dracut_install sfdisk mkfs.ext3 poweroff cp umount
         inst_hook initqueue 01 ./create-root.sh
+        inst_hook initqueue/finished 01 ./finished-false.sh
         inst_simple ./99-idesymlinks.rules /etc/udev/rules.d/99-idesymlinks.rules
     )
 
@@ -132,7 +135,7 @@ test_setup() {
         -m "dash crypt lvm mdraid udev-rules base rootfs-block kernel-modules" \
         -d "piix ide-gd_mod ata_piix ext3 sd_mod" \
         -f $TESTDIR/initramfs.makeroot $KVERSION || return 1
-    rm -rf $TESTDIR/overlay
+    rm -rf -- $TESTDIR/overlay
 
 
     # Need this so kvm-qemu will boot (needs non-/dev/zero local disk)
@@ -146,12 +149,12 @@ test_setup() {
         -hdb $TESTDIR/client.img \
         -hdc $TESTDIR/iscsidisk2.img \
         -hdd $TESTDIR/iscsidisk3.img \
-        -m 256M -nographic -net none \
+        -smp 2 -m 256M -nographic -net none \
         -kernel "/boot/vmlinuz-$kernel" \
-        -append "root=/dev/dracut/root rw rootfstype=ext3 quiet console=ttyS0,115200n81 selinux=0" \
+        -append "root=/dev/fakeroot rw rootfstype=ext3 quiet console=ttyS0,115200n81 selinux=0" \
         -initrd $TESTDIR/initramfs.makeroot  || return 1
-    grep -m 1 -q dracut-root-block-created $TESTDIR/client.img || return 1
-    rm $TESTDIR/client.img
+    grep -F -m 1 -q dracut-root-block-created $TESTDIR/client.img || return 1
+    rm -- $TESTDIR/client.img
     (
         export initdir=$TESTDIR/overlay
         . $basedir/dracut-functions.sh
@@ -160,7 +163,7 @@ test_setup() {
         inst_simple ./99-idesymlinks.rules /etc/udev/rules.d/99-idesymlinks.rules
     )
     sudo $basedir/dracut.sh -l -i $TESTDIR/overlay / \
-        -o "plymouth dmraid" \
+        -o "dash plymouth dmraid" \
         -a "debug" \
         -d "af_packet piix ide-gd_mod ata_piix ext3 sd_mod" \
         -f $TESTDIR/initramfs.testing $KVERSION || return 1
@@ -194,6 +197,7 @@ test_setup() {
         [ -f /etc/netconfig ] && dracut_install /etc/netconfig
         type -P dhcpd >/dev/null && dracut_install dhcpd
         [ -x /usr/sbin/dhcpd3 ] && inst /usr/sbin/dhcpd3 /usr/sbin/dhcpd
+        inst_simple /etc/os-release
         inst ./server-init.sh /sbin/init
         inst ./hosts /etc/hosts
         inst ./dhcpd.conf /etc/dhcpd.conf
@@ -206,7 +210,7 @@ test_setup() {
     )
 
     sudo umount $TESTDIR/mnt
-    rm -fr $TESTDIR/mnt
+    rm -fr -- $TESTDIR/mnt
 
     # Make server's dracut image
     $basedir/dracut.sh -l -i $TESTDIR/overlay / \
@@ -219,7 +223,7 @@ test_setup() {
 test_cleanup() {
     if [[ -s $TESTDIR/server.pid ]]; then
         sudo kill -TERM $(cat $TESTDIR/server.pid)
-        rm -f $TESTDIR/server.pid
+        rm -f -- $TESTDIR/server.pid
     fi
 }
 

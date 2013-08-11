@@ -9,9 +9,9 @@ check() {
 
     [[ $hostonly ]] || [[ $mount_needs ]] && {
         for fs in ${host_fs_types[@]}; do
-            strstr "$fs" "\|nfs"  && return 0
-            strstr "$fs" "\|nfs3" && return 0
-            strstr "$fs" "\|nfs4" && return 0
+            [[ "$fs" == "nfs" ]] && return 0
+            [[ "$fs" == "nfs3" ]] && return 0
+            [[ "$fs" == "nfs4" ]] && return 0
         done
         return 255
     }
@@ -62,12 +62,8 @@ install() {
 
     # Rather than copy the passwd file in, just set a user for rpcbind
     # We'll save the state and restart the daemon from the root anyway
-    egrep '^nfsnobody:' /etc/passwd >> "$initdir/etc/passwd"
-    egrep '^rpc:' /etc/passwd >> "$initdir/etc/passwd"
-    egrep '^rpcuser:' /etc/passwd >> "$initdir/etc/passwd"
-    #type -P nologin >/dev/null && dracut_install nologin
-    egrep '^nobody:' /etc/group >> "$initdir/etc/group"
-    egrep '^rpc:' /etc/group >> "$initdir/etc/group"
+    egrep '^nfsnobody:|^rpc:|^rpcuser:' /etc/passwd >> "$initdir/etc/passwd"
+    egrep '^nogroup:|^rpc:|^nobody:' /etc/group >> "$initdir/etc/group"
 
     # rpc user needs to be able to write to this directory to save the warmstart
     # file
@@ -75,5 +71,6 @@ install() {
     egrep -q '^rpc:' /etc/passwd \
         && egrep -q '^rpc:' /etc/group \
         && chown rpc.rpc "$initdir/var/lib/rpcbind"
+    dracut_need_initqueue
 }
 

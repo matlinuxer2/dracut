@@ -3,7 +3,10 @@
 # ex: ts=8 sw=4 sts=4 et filetype=sh
 
 check() {
+    local _init
     [[ $mount_needs ]] && return 1
+    _init=$(readlink -f /sbin/init)
+    [[ "$init" == "${init##/usr}" ]] && return 255
     return 0
 }
 
@@ -12,6 +15,9 @@ depends() {
 }
 
 install() {
-    inst_hook pre-pivot 50 "$moddir/mount-usr.sh"
+    if ! dracut_module_included "systemd"; then
+        inst_hook pre-pivot 50 "$moddir/mount-usr.sh"
+    fi
+    :
 }
 

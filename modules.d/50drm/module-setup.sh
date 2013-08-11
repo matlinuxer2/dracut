@@ -3,7 +3,7 @@
 # ex: ts=8 sw=4 sts=4 et filetype=sh
 
 check() {
-    return 0
+    return 255
 }
 
 depends() {
@@ -54,7 +54,7 @@ installkernel() {
         # as we could e.g. be in the installer; nokmsboot boot parameter will disable
         # loading of the driver if needed
         if [[ $hostonly ]] && modinfo -F alias $_modname | sed -e 's,\?,\.,g' -e 's,\*,\.\*,g' \
-            | grep -qxf - /sys/bus/pci/devices/*/modalias; then
+            | grep -qxf - /sys/bus/pci/devices/*/modalias 2>/dev/null; then
             hostonly='' instmods $_modname
             continue
         fi
