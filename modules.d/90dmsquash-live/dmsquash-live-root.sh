@@ -232,21 +232,21 @@ if [ -b "$BASE_LOOPDEV" ]; then
 fi
 ln -s /dev/mapper/live-rw /dev/root
 #printf 'mount %s /dev/mapper/live-rw %s\n' "$ROOTFLAGS" "$NEWROOT" > $hookdir/mount/01-$$-live.sh
-#
-#need_shutdown
-
-LIVE_BASE="/dev/.live/image/"
-LIVE_OVERLAY="/dev/.live/cow/"
-
-cat > $hookdir/mount/01-$$-live.sh <<EOF
-mkdir -p $LIVE_BASE $LIVE_OVERLAY
-mount $ROOTFLAGS /dev/mapper/live-rw $LIVE_BASE
-mount LABEL=live-rw $LIVE_OVERLAY
-mount -t aufs -o rw,noatime,dirs=$LIVE_OVERLAY=rw:$LIVE_BASE=ro aufs $NEWROOT
-EOF
 
 # NOTE: For overlay machanism comparsion, 
 #     device-mapper => device level
 #     aufs          => filesystem level
+LIVE_BASELAY="/dev/.live/img/"
+LIVE_OVERLAY="/dev/.live/cow/"
+
+cat > $hookdir/mount/01-$$-live.sh <<EOF
+mkdir -p $LIVE_BASELAY 
+mkdir -p $LIVE_OVERLAY
+mount $ROOTFLAGS /dev/mapper/live-rw $LIVE_BASELAY
+mount LABEL=live-rw $LIVE_OVERLAY
+mount -t aufs -o rw,noatime,dirs=$LIVE_OVERLAY=rw:$LIVE_BASELAY=ro aufs $NEWROOT
+EOF
+
+need_shutdown
 
 exit 0
