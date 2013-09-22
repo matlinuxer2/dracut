@@ -173,8 +173,6 @@ if [ -e /run/initramfs/live/${live_dir}/ext3fs.img ]; then
     FSIMG="/run/initramfs/live/${live_dir}/ext3fs.img"
 elif [ -e /run/initramfs/live/${live_dir}/rootfs.img ]; then
     FSIMG="/run/initramfs/live/${live_dir}/rootfs.img"
-elif [ -e /run/initramfs/live/${live_dir}/image.squashfs ]; then
-    FSIMG="/run/initramfs/live/${live_dir}/image.squashfs"
 fi
 
 if [ -n "$FSIMG" ] ; then
@@ -238,13 +236,18 @@ ln -s /dev/mapper/live-rw /dev/root
 #     aufs          => filesystem level
 LIVE_BASELAY="/dev/.live/img/"
 LIVE_OVERLAY="/dev/.live/cow/"
+LIVE_BOOTDIR="/dev/.live/boot/"
 
 cat > $hookdir/mount/01-$$-live.sh <<EOF
 mkdir -p $LIVE_BASELAY 
 mkdir -p $LIVE_OVERLAY
-mount $ROOTFLAGS /dev/mapper/live-rw $LIVE_BASELAY
+mount -t squashfs $FSIMG $LIVE_BASELAY
 mount LABEL=live-rw $LIVE_OVERLAY
-mount -t aufs -o rw,noatime,dirs=$LIVE_OVERLAY=rw:$LIVE_BASELAY=ro aufs $NEWROOT
+mount -t aufs -o rw,noatime,br=$LIVE_OVERLAY=rw:$LIVE_BASELAY=ro none $NEWROOT
+
+mkdir -p $LIVE_BOOTDIR
+mount -o remount,rw /run/initramfs/live 
+mount --bind /run/initramfs/live $LIVE_BOOTDIR
 EOF
 
 need_shutdown
