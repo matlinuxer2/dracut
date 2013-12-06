@@ -236,7 +236,6 @@ ln -s /dev/mapper/live-rw /dev/root
 #     aufs          => filesystem level
 LIVE_BASELAY="/dev/.live/img/"
 LIVE_OVERLAY="/dev/.live/cow/"
-LIVE_BOOTDIR="/dev/.live/boot/"
 
 cat > $hookdir/mount/01-$$-live.sh <<EOF
 mkdir -p $LIVE_BASELAY 
@@ -244,10 +243,7 @@ mkdir -p $LIVE_OVERLAY
 mount -t squashfs $FSIMG $LIVE_BASELAY
 mount LABEL=live-rw $LIVE_OVERLAY
 mount -t aufs -o rw,noatime,br=$LIVE_OVERLAY=rw:$LIVE_BASELAY=ro none $NEWROOT
-
-mkdir -p $LIVE_BOOTDIR
-mount -o remount,rw /run/initramfs/live 
-mount --bind /run/initramfs/live $LIVE_BOOTDIR
+#mount -o remount,rw /run/initramfs/live 
 EOF
 
 need_shutdown
