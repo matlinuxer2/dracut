@@ -1,6 +1,4 @@
 #!/bin/bash
-# -*- mode: shell-script; indent-tabs-mode: nil; sh-basic-offset: 4; -*-
-# ex: ts=8 sw=4 sts=4 et filetype=sh
 
 export LANG=C
 
@@ -59,7 +57,7 @@ if [[ ! -f $INITRDFILE ]]; then
 fi
 
 if [[ ! -f $NEW_KERNEL_IMAGE ]]; then
-    cp "$KERNEL_IMAGE" "$NEW_KERNEL_IMAGE"
+    cp --reflink=auto "$KERNEL_IMAGE" "$NEW_KERNEL_IMAGE"
     ((ret+=$?))
 fi
 

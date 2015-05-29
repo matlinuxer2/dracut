@@ -1,26 +1,16 @@
 #!/bin/bash
-# -*- mode: shell-script; indent-tabs-mode: nil; sh-basic-offset: 4; -*-
-# ex: ts=8 sw=4 sts=4 et filetype=sh
 
+# called by dracut
 check() {
     return 0
 }
 
+# called by dracut
 depends() {
     echo fs-lib
 }
 
-cmdline() {
-    local dev=/dev/block/$(find_root_block_device)
-    if [ -e $dev ]; then
-        printf " root=%s" "$(shorten_persistent_dev "$(get_persistent_dev "$dev")")"
-        printf " rootflags=%s" "$(find_mp_fsopts /)"
-        printf " rootfstype=%s" "$(find_mp_fstype /)"
-    fi
-}
-
-install() {
-
+cmdline_journal() {
     if [[ $hostonly ]]; then
         for dev in "${!host_fs_types[@]}"; do
             [[ ${host_fs_types[$dev]} = "reiserfs" ]] || [[ ${host_fs_types[$dev]} = "xfs" ]] || continue
@@ -32,9 +22,43 @@ install() {
             fi
 
             if [ -n "$journaldev" ]; then
-                printf "%s\n" "root.journaldev=$journaldev" >> "${initdir}/etc/cmdline.d/95root-journaldev.conf"
+                printf " root.journaldev=%s" "$journaldev"
             fi
         done
+    fi
+    return 0
+}
+
+cmdline_rootfs() {
+    local _dev=/dev/block/$(find_root_block_device)
+    local _fstype _flags _subvol
+    if [ -e $_dev ]; then
+        printf " root=%s" "$(shorten_persistent_dev "$(get_persistent_dev "$_dev")")"
+        _fstype="$(find_mp_fstype /)"
+        _flags="$(find_mp_fsopts /)"
+        printf " rootfstype=%s" "$_fstype"
+        if [[ $use_fstab != yes ]] && [[ $_fstype = btrfs ]]; then
+            _subvol=$(findmnt -e -v -n -o FSROOT --target /) \
+		&& _subvol=${_subvol#/}
+            _flags="$_flags,${_subvol:+subvol=$_subvol}"
+        fi
+        printf " rootflags=%s" "${_flags#,}"
+    fi
+}
+
+# called by dracut
+cmdline() {
+    cmdline_rootfs
+    cmdline_journal
+}
+
+# called by dracut
+install() {
+    if [[ $hostonly_cmdline == "yes" ]]; then
+        local _journaldev=$(cmdline_journal)
+        [[ $_journaldev ]] && printf "%s\n" "$_journaldev" >> "${initdir}/etc/cmdline.d/95root-journaldev.conf"
+        local _rootdev=$(cmdline_rootfs)
+        [[ $_rootdev ]] && printf "%s\n" "$_rootdev" >> "${initdir}/etc/cmdline.d/95root-dev.conf"
     fi
 
     inst_multiple umount

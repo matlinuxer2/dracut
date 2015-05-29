@@ -1,6 +1,4 @@
 #!/bin/sh
-# -*- mode: shell-script; indent-tabs-mode: nil; sh-basic-offset: 4; -*-
-# ex: ts=8 sw=4 sts=4 et filetype=sh
 
 type info >/dev/null 2>&1 || . /lib/dracut-lib.sh
 type fsck_single >/dev/null 2>&1 || . /lib/fs-lib.sh
@@ -54,7 +52,7 @@ mount_usr()
 {
     local _dev _mp _fs _opts _rest _usr_found _ret _freq _passno
     # check, if we have to mount the /usr filesystem
-    while read _dev _mp _fs _opts _freq _passno; do
+    while read _dev _mp _fs _opts _freq _passno || [ -n "$_dev" ]; do
         [ "${_dev%%#*}" != "$_dev" ] && continue
         if [ "$_mp" = "/usr" ]; then
             case "$_dev" in

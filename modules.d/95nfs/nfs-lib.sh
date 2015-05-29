@@ -1,6 +1,4 @@
 #!/bin/sh
-# -*- mode: shell-script; indent-tabs-mode: nil; sh-basic-offset: 4; -*-
-# ex: ts=8 sw=4 sts=4 et filetype=sh
 
 type getarg >/dev/null 2>&1 || . /lib/dracut-lib.sh
 . /lib/net-lib.sh
@@ -40,7 +38,7 @@ nfsroot_to_var() {
     arg="${arg##$nfs:}"
 
     # check if we have a server
-    if strstr "$arg" ':/*' ; then
+    if strstr "$arg" ':/' ; then
         server="${arg%%:/*}"
         arg="/${arg##*:/}"
     fi
@@ -97,7 +95,7 @@ nfsroot_from_dhcp() {
     [ -z "$path" ] && [ "$(getarg root=)" == "/dev/nfs" ] && path=/tftpboot/%s
     [ -z "$server" ] && server=$srv
     [ -z "$server" ] && server=$new_dhcp_server_identifier
-    [ -z "$server" ] && server=$new_dhcp_next_server
+    [ -z "$server" ] && server=$new_next_server
     [ -z "$server" ] && server=${new_root_path%%:*}
 }
 
@@ -125,7 +123,7 @@ munge_nfs_options() {
 mount_nfs() {
     local nfsroot="$1" mntdir="$2" netif="$3"
     local nfs="" server="" path="" options=""
-    nfs_to_var $nfsroot $netif
+    nfs_to_var "$nfsroot" $netif
     munge_nfs_options
     if [ "$nfs" = "nfs4" ]; then
         options=$options${nfslock:+,$nfslock}
@@ -136,5 +134,5 @@ mount_nfs() {
             && warn "Locks unsupported on NFSv{2,3}, using nolock" 1>&2
         options=$options,nolock
     fi
-    mount -t $nfs -o$options $server:$path $mntdir
+    mount -t $nfs -o$options "$server:$path" "$mntdir"
 }

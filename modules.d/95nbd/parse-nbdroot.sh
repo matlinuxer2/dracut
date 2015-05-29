@@ -1,6 +1,4 @@
 #!/bin/sh
-# -*- mode: shell-script; indent-tabs-mode: nil; sh-basic-offset: 4; -*-
-# ex: ts=8 sw=4 sts=4 et filetype=sh
 #
 # Preferred format:
 #       root=nbd:srv:port[:fstype[:rootflags[:nbdopts]]]
@@ -61,6 +59,6 @@ rootok=1
 # Shut up init error check
 if [ -z "$root" ]; then
     root=block:/dev/root
-    wait_for_dev /dev/root
+    wait_for_dev -n /dev/root
 fi
 

@@ -1,6 +1,4 @@
 #!/bin/sh
-# -*- mode: shell-script; indent-tabs-mode: nil; sh-basic-offset: 4; -*-
-# ex: ts=8 sw=4 sts=4 et filetype=sh
 
 # run lvm scan if udev has settled
 
@@ -107,11 +105,13 @@ fi
 if [ -n "$LVS" ] ; then
     info "Scanning devices $lvmdevs for LVM logical volumes $LVS"
     lvm lvscan --ignorelockingfailure 2>&1 | vinfo
-    if [ -z "$sysinit" ]; then
-        lvm lvchange --yes -ay --ignorelockingfailure $nopoll --ignoremonitoring $LVS 2>&1 | vinfo
-    else
-        lvm lvchange --yes -ay $sysinit $LVS 2>&1 | vinfo
-    fi
+    for LV in $LVS; do
+        if [ -z "$sysinit" ]; then
+            lvm lvchange --yes -ay --ignorelockingfailure $nopoll --ignoremonitoring $LV 2>&1 | vinfo
+        else
+            lvm lvchange --yes -ay $sysinit $LV 2>&1 | vinfo
+        fi
+    done
 fi
 
 if [ -z "$LVS" -o -n "$VGS" ]; then

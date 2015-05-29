@@ -1,12 +1,11 @@
 #!/bin/bash
-# -*- mode: shell-script; indent-tabs-mode: nil; sh-basic-offset: 4; -*-
-# ex: ts=8 sw=4 sts=4 et filetype=sh
 
+# called by dracut
 check() {
     local _rootdev
     # if we don't have dmraid installed on the host system, no point
     # in trying to support it in the initramfs.
-    type -P dmraid >/dev/null || return 1
+    require_binaries dmraid || return 1
 
     [[ $hostonly ]] || [[ $mount_needs ]] && {
         for dev in "${!host_fs_types[@]}"; do
@@ -27,11 +26,13 @@ check() {
     return 0
 }
 
+# called by dracut
 depends() {
     echo dm rootfs-block
     return 0
 }
 
+# called by dracut
 cmdline() {
     local _activated
     declare -A _activated
@@ -58,19 +59,20 @@ cmdline() {
     done
 }
 
+# called by dracut
 install() {
     local _i
 
-    cmdline >> "${initdir}/etc/cmdline.d/90dmraid.conf"
-    echo >> "${initdir}/etc/cmdline.d/90dmraid.conf"
+    if [[ $hostonly_cmdline == "yes" ]]; then
+        local _raidconf=$(cmdline)
+        [[ $_raidconf ]] && printf "%s\n" "$_raidconf" >> "${initdir}/etc/cmdline.d/90dmraid.conf"
+    fi
 
     inst_multiple dmraid
     inst_multiple -o kpartx
     inst $(command -v partx) /sbin/partx
 
     inst "$moddir/dmraid.sh" /sbin/dmraid_scan
-
-    inst_rules 64-md-raid.rules
 
     inst_libdir_file "libdmraid-events*.so*"
 

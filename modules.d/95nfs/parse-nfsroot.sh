@@ -1,6 +1,4 @@
 #!/bin/sh
-# -*- mode: shell-script; indent-tabs-mode: nil; sh-basic-offset: 4; -*-
-# ex: ts=8 sw=4 sts=4 et filetype=sh
 #
 # Preferred format:
 #       root=nfs[4]:[server:]path[:options]
@@ -59,7 +57,14 @@ fi
 
 case "$netroot" in
     /dev/nfs) netroot=nfs;;
-    /dev/*) unset netroot; return;;
+    /dev/*)
+        if [ -n "$oldnetroot" ]; then
+            netroot="$oldnetroot"
+        else
+            unset netroot
+        fi
+	return
+	;;
     # LEGACY: root=<server-ip>:/<path
     [0-9]*:/*|[0-9]*\.[0-9]*\.[0-9]*[!:]|/*)
         netroot=nfs:$netroot;;

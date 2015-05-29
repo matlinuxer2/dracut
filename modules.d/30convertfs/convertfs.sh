@@ -1,6 +1,4 @@
 #!/bin/bash
-# -*- mode: shell-script; indent-tabs-mode: nil; sh-basic-offset: 4; -*-
-# ex: ts=8 sw=4 sts=4 et filetype=sh
 
 ROOT="$1"
 
@@ -76,7 +74,7 @@ rm -f -- "$testfile"
 find_mount() {
     local dev mnt etc wanted_dev
     wanted_dev="$(readlink -e -q $1)"
-    while read dev mnt etc; do
+    while read dev mnt etc || [ -n "$dev" ]; do
         [ "$dev" = "$wanted_dev" ] && echo "$dev" && return 0
     done < /proc/mounts
     return 1
@@ -95,7 +93,7 @@ else
             return 1
         fi
 
-        while read a m a; do
+        while read a m a || [ -n "$m" ]; do
             [ "$m" = "$1" ] && return 0
         done < /proc/mounts
         return 1

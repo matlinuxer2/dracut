@@ -1,9 +1,18 @@
 #!/bin/sh
-# -*- mode: shell-script; indent-tabs-mode: nil; sh-basic-offset: 4; -*-
-# ex: ts=8 sw=4 sts=4 et filetype=sh
 
 export DRACUT_SYSTEMD
 export NEWROOT
+if [ -n "$NEWROOT" ]; then
+    [ -d $NEWROOT ] || mkdir -p -m 0755 $NEWROOT
+fi
+
+if ! [ -d /run/initramfs ]; then
+    mkdir -p -m 0755 /run/initramfs/log
+    ln -sfn /run/initramfs/log /var/log
+fi
+
+[ -d /run/lock ] || mkdir -p -m 0755 /run/lock
+[ -d /run/log ] || mkdir -p -m 0755 /run/log
 
 debug_off() {
     set +x
@@ -13,19 +22,33 @@ debug_on() {
     [ "$RD_DEBUG" = "yes" ] && set -x
 }
 
-# returns OK if $1 contains $2
+# returns OK if $1 contains literal string $2 (and isn't empty)
 strstr() {
-    [ "${1#*$2*}" != "$1" ]
+    [ "${1##*"$2"*}" != "$1" ]
 }
 
-# returns OK if $1 contains $2 at the beginning
+# returns OK if $1 matches (completely) glob pattern $2
+# An empty $1 will not be considered matched, even if $2 is * which technically
+# matches; as it would match anything, it's not an interesting case.
+strglob() {
+    [ -n "$1" -a -z "${1##$2}" ]
+}
+
+# returns OK if $1 contains (anywhere) a match of glob pattern $2
+# An empty $1 will not be considered matched, even if $2 is * which technically
+# matches; as it would match anything, it's not an interesting case.
+strglobin() {
+    [ -n "$1" -a -z "${1##*$2*}" ]
+}
+
+# returns OK if $1 contains literal string $2 at the beginning, and isn't empty
 str_starts() {
-    [ "${1#$2*}" != "$1" ]
+    [ "${1#"$2"*}" != "$1" ]
 }
 
-# returns OK if $1 contains $2 at the end
+# returns OK if $1 contains literal string $2 at the end, and isn't empty
 str_ends() {
-    [ "${1%*$2}" != "$1" ]
+    [ "${1%*"$2"}" != "$1" ]
 }
 
 if [ -z "$DRACUT_SYSTEMD" ]; then
@@ -56,13 +79,13 @@ else
 fi
 
 vwarn() {
-    while read line; do
+    while read line || [ -n "$line" ]; do
         warn $line;
     done
 }
 
 vinfo() {
-    while read line; do
+    while read line || [ -n "$line" ]; do
         info $line;
     done
 }
@@ -78,9 +101,9 @@ str_replace() {
     local out=''
 
     while strstr "${in}" "$s"; do
-        chop="${in%%$s*}"
+        chop="${in%%"$s"*}"
         out="${out}${chop}$r"
-        in="${in#*$s}"
+        in="${in#*"$s"}"
     done
     echo "${out}${in}"
 }
@@ -104,22 +127,25 @@ getcmdline() {
     local _i
     local CMDLINE_ETC_D
     local CMDLINE_ETC
+    local CMDLINE_PROC
     unset _line
 
     if [ -e /etc/cmdline ]; then
-        while read -r _line; do
+        while read -r _line || [ -n "$_line" ]; do
             CMDLINE_ETC="$CMDLINE_ETC $_line";
         done </etc/cmdline;
     fi
     for _i in /etc/cmdline.d/*.conf; do
         [ -e "$_i" ] || continue
-        while read -r _line; do
+        while read -r _line || [ -n "$_line" ]; do
             CMDLINE_ETC_D="$CMDLINE_ETC_D $_line";
         done <"$_i";
     done
     if [ -e /proc/cmdline ]; then
-        read -r CMDLINE </proc/cmdline;
-        CMDLINE="$CMDLINE_ETC_D $CMDLINE_ETC $CMDLINE"
+        while read -r _line || [ -n "$_line" ]; do
+            CMDLINE_PROC="$CMDLINE_PROC $_line"
+        done </proc/cmdline;
+        CMDLINE="$CMDLINE_ETC_D $CMDLINE_ETC $CMDLINE_PROC"
     fi
     printf "%s" "$CMDLINE"
 }
@@ -370,7 +396,7 @@ splitsep() {
 }
 
 setdebug() {
-    [ -f /etc/initrd-release ] || return
+    [ -f /usr/lib/initrd-release ] || return
     if [ -z "$RD_DEBUG" ]; then
         if [ -e /proc/cmdline ]; then
             RD_DEBUG=no
@@ -430,8 +456,15 @@ die() {
         echo "warn dracut: Refusing to continue";
     } >> $hookdir/emergency/01-die.sh
     [ -d /run/initramfs ] || mkdir -p -- /run/initramfs
+
     > /run/initramfs/.die
-    emergency_shell
+
+    getargbool 0 "rd.debug=" && emergency_shell
+
+    if [ -n "$DRACUT_SYSTEMD" ]; then
+        systemctl --no-block --force halt
+    fi
+
     exit 1
 }
 
@@ -473,7 +506,7 @@ incol2() {
     [ -z "$file" ] && return 1;
     [ -z "$str"  ] && return 1;
 
-    while read dummy check restofline; do
+    while read dummy check restofline || [ -n "$check" ]; do
         if [ "$check" = "$str" ]; then
             debug_on
             return 0
@@ -506,7 +539,7 @@ udevproperty() {
 find_mount() {
     local dev mnt etc wanted_dev
     wanted_dev="$(readlink -e -q $1)"
-    while read dev mnt etc; do
+    while read dev mnt etc || [ -n "$dev" ]; do
         [ "$dev" = "$wanted_dev" ] && echo "$dev" && return 0
     done < /proc/mounts
     return 1
@@ -525,7 +558,7 @@ else
             return 1
         fi
 
-        while read a m a; do
+        while read a m a || [ -n "$m" ]; do
             [ "$m" = "$1" ] && return 0
         done < /proc/mounts
         return 1
@@ -541,7 +574,7 @@ nfsroot_to_var() {
     arg="${arg##$nfs:}"
 
     # check if we have a server
-    if strstr "$arg" ':/*' ; then
+    if strstr "$arg" ':/' ; then
         server="${arg%%:/*}"
         arg="/${arg##*:/}"
     fi
@@ -723,11 +756,18 @@ $(readlink -e -q "$d")" || return 255
 
 
 usable_root() {
-    local _d
-    [ -d $1 ] || return 1
-    for _d in proc sys dev; do
-        [ -e "$1"/$_d ] || return 1
+    local _i
+
+    [ -d "$1" ] || return 1
+
+    for _i in "$1"/usr/lib*/ld-*.so "$1"/lib*/ld-*.so; do
+        [ -e "$_i" ] && return 0
     done
+
+    for _i in proc sys dev; do
+        [ -e "$1"/$_i ] || return 1
+    done
+
     return 0
 }
 
@@ -829,13 +869,30 @@ wait_for_mount()
     } >> "$hookdir/emergency/90-${_name}.sh"
 }
 
+# get a systemd-compatible unit name from a path
+# (mimicks unit_name_from_path_instance())
 dev_unit_name()
 {
-    _name="${1%%/}"
-    _name="${_name##/}"
-    _name="$(str_replace "$_name" '-' '\x2d')"
-    _name="$(str_replace "$_name" '/' '-')"
-    echo "$_name"
+    local dev="$1"
+
+    if command -v systemd-escape >/dev/null; then
+        systemd-escape -p  "$dev"
+        return
+    fi
+
+    if [ "$dev" = "/" -o -z "$dev" ]; then
+        printf -- "-"
+        exit 0
+    fi
+
+    dev="${1%%/}"
+    dev="${dev##/}"
+    dev="$(str_replace "$dev" '\' '\x5c')"
+    dev="$(str_replace "$dev" '-' '\x2d')"
+    dev=${dev/#\./\\x2e}
+    dev="$(str_replace "$dev" '/' '-')"
+
+    printf -- "%s" "$dev"
 }
 
 # wait_for_dev <dev>
@@ -846,7 +903,24 @@ dev_unit_name()
 wait_for_dev()
 {
     local _name
+    local _needreload
+    local _noreload
+    local _timeout
+
+    if [ "$1" = "-n" ]; then
+        _noreload=1
+        shift
+    fi
+
+    _timeout=$(getarg rd.timeout)
+    _timeout=${_timeout:-0}
+
     _name="$(str_replace "$1" '/' '\x2f')"
+
+    type mark_hostonly >/dev/null 2>&1 && mark_hostonly "$hookdir/initqueue/finished/devexists-${_name}.sh"
+
+    [ -e "${PREFIX}$hookdir/initqueue/finished/devexists-${_name}.sh" ] && return 0
+
     printf '[ -e "%s" ]\n' $1 \
         >> "${PREFIX}$hookdir/initqueue/finished/devexists-${_name}.sh"
     {
@@ -856,29 +930,38 @@ wait_for_dev()
 
     if [ -n "$DRACUT_SYSTEMD" ]; then
         _name=$(dev_unit_name "$1")
-        if ! [ -L ${PREFIX}/etc/systemd/system/initrd.target.requires/${_name}.device ]; then
-            [ -d ${PREFIX}/etc/systemd/system/initrd.target.requires ] || mkdir -p ${PREFIX}/etc/systemd/system/initrd.target.requires
-            ln -s ../${_name}.device ${PREFIX}/etc/systemd/system/initrd.target.requires/${_name}.device
+        if ! [ -L ${PREFIX}/etc/systemd/system/initrd.target.wants/${_name}.device ]; then
+            [ -d ${PREFIX}/etc/systemd/system/initrd.target.wants ] || mkdir -p ${PREFIX}/etc/systemd/system/initrd.target.wants
+            ln -s ../${_name}.device ${PREFIX}/etc/systemd/system/initrd.target.wants/${_name}.device
+            type mark_hostonly >/dev/null 2>&1 && mark_hostonly /etc/systemd/system/initrd.target.wants/${_name}.device
+            _needreload=1
         fi
 
-        mkdir -p ${PREFIX}/etc/systemd/system/${_name}.device.d
-        {
-            echo "[Unit]"
-            echo "JobTimeoutSec=3600"
-        } > ${PREFIX}/etc/systemd/system/${_name}.device.d/timeout.conf
-        [ -z "$PREFIX" ] && /sbin/initqueue --onetime --unique --name daemon-reload systemctl daemon-reload
+        if ! [ -f ${PREFIX}/etc/systemd/system/${_name}.device.d/timeout.conf ]; then
+            mkdir -p ${PREFIX}/etc/systemd/system/${_name}.device.d
+            {
+                echo "[Unit]"
+                echo "JobTimeoutSec=$_timeout"
+            } > ${PREFIX}/etc/systemd/system/${_name}.device.d/timeout.conf
+            type mark_hostonly >/dev/null 2>&1 && mark_hostonly /etc/systemd/system/${_name}.device.d/timeout.conf
+            _needreload=1
+        fi
+
+        if [ -z "$PREFIX" ] && [ "$_needreload" = 1 ] && [ -z "$_noreload" ]; then
+            /sbin/initqueue --onetime --unique --name daemon-reload systemctl daemon-reload
+        fi
     fi
 }
 
 cancel_wait_for_dev()
 {
     local _name
-    _name="$(str_replace "$1" '/' '\\x2f')"
+    _name="$(str_replace "$1" '/' '\x2f')"
     rm -f -- "$hookdir/initqueue/finished/devexists-${_name}.sh"
     rm -f -- "$hookdir/emergency/80-${_name}.sh"
     if [ -n "$DRACUT_SYSTEMD" ]; then
         _name=$(dev_unit_name "$1")
-        rm -f -- ${PREFIX}/etc/systemd/system/initrd.target.requires/${_name}.device
+        rm -f -- ${PREFIX}/etc/systemd/system/initrd.target.wants/${_name}.device
         rm -f -- ${PREFIX}/etc/systemd/system/${_name}.device.d/timeout.conf
         /sbin/initqueue --onetime --unique --name daemon-reload systemctl daemon-reload
     fi
@@ -924,7 +1007,7 @@ wait_for_loginit()
 
     if [ $i -eq 10 ]; then
         kill %1 >/dev/null 2>&1
-        kill $(while read line;do echo $line;done</run/initramfs/loginit.pid)
+        kill $(while read line || [ -n "$line" ];do echo $line;done</run/initramfs/loginit.pid)
     fi
 
     setdebug
@@ -934,25 +1017,32 @@ wait_for_loginit()
 # pidof version for root
 if ! command -v pidof >/dev/null 2>/dev/null; then
     pidof() {
+        debug_off
         local _cmd
         local _exe
         local _rl
+        local _ret=1
         local i
         _cmd="$1"
-        [ -z "$_cmd" ] && return 1
+        if [ -z "$_cmd" ]; then
+            debug_on
+            return 1
+        fi
         _exe=$(type -P "$1")
         for i in /proc/*/exe; do
-            [ -e "$i" ] || return 1
+            [ -e "$i" ] || continue
             if [ -n "$_exe" ]; then
-                [ "$i" -ef "$_cmd" ] || continue
+                [ "$i" -ef "$_exe" ] || continue
             else
                 _rl=$(readlink -f "$i");
                 [ "${_rl%/$_cmd}" != "$_rl" ] || continue
             fi
             i=${i%/exe}
             echo ${i##/proc/}
+            _ret=0
         done
-        return 0
+        debug_on
+        return $_ret
     }
 fi
 
@@ -1027,7 +1117,13 @@ emergency_shell()
         # cause a kernel panic
         exit 1
     fi
-    [ -e /run/initramfs/.die ] && exit 1
+
+    if [ -e /run/initramfs/.die ]; then
+        if [ -n "$DRACUT_SYSTEMD" ]; then
+            systemctl --no-block --force halt
+        fi
+        exit 1
+    fi
 }
 
 action_on_fail()
@@ -1188,4 +1284,14 @@ show_memstats()
             cat /proc/iomem
             ;;
     esac
+}
+
+remove_hostonly_files() {
+    rm -fr /etc/cmdline /etc/cmdline.d/*.conf
+    if [ -f /lib/dracut/hostonly-files ]; then
+        while read line || [ -n "$line" ]; do
+            [ -e "$line" ] || [ -h "$line" ] || continue
+            rm -f "$line"
+        done < /lib/dracut/hostonly-files
+    fi
 }

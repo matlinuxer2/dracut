@@ -1,19 +1,23 @@
 #!/bin/bash
 # module-setup for url-lib
 
+# called by dracut
 check() {
-    command -v curl >/dev/null || return 1
+    require_binaries curl || return 1
     return 255
 }
 
+# called by dracut
 depends() {
     echo network
     return 0
 }
 
+# called by dracut
 install() {
     local _dir _crt _found _lib
     inst_simple "$moddir/url-lib.sh" "/lib/url-lib.sh"
+    inst_multiple -o ctorrent
     inst_multiple curl
     # also install libs for curl https
     inst_libdir_file "libnsspem.so*"

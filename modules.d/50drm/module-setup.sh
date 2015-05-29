@@ -1,15 +1,16 @@
 #!/bin/bash
-# -*- mode: shell-script; indent-tabs-mode: nil; sh-basic-offset: 4; -*-
-# ex: ts=8 sw=4 sts=4 et filetype=sh
 
+# called by dracut
 check() {
     return 255
 }
 
+# called by dracut
 depends() {
     return 0
 }
 
+# called by dracut
 installkernel() {
     local _modname
     # Include KMS capable drm drivers
@@ -21,7 +22,7 @@ installkernel() {
         local _merge=8 _side2=9
         function nmf1() {
             local _fname _fcont
-            while read _fname; do
+            while read _fname || [ -n "$_fname" ]; do
                 case "$_fname" in
                     *.ko)    _fcont="$(<        $_fname)" ;;
                     *.ko.gz) _fcont="$(gzip -dc $_fname)" ;;
@@ -34,7 +35,7 @@ installkernel() {
         }
         function rotor() {
             local _f1 _f2
-            while read _f1; do
+            while read _f1 || [ -n "$_f1" ]; do
                 echo "$_f1"
                 if read _f2; then
                     echo "$_f2" 1>&${_side2}
@@ -48,14 +49,31 @@ installkernel() {
         return 0
     }
 
+    if [[ "$(uname -p)" == arm* ]]; then
+        # arm specific modules needed by drm
+        instmods \
+            "=drivers/gpu/drm/i2c" \
+            "=drivers/gpu/drm/panel" \
+            "=drivers/pwm" \
+            "=drivers/video/backlight" \
+            "=drivers/video/fbdev/omap2/displays-new" \
+            ${NULL}
+    fi
+
+    instmods amdkfd hyperv_fb
+
     for _modname in $(find_kernel_modules_by_path drivers/gpu/drm \
         | drm_module_filter) ; do
         # if the hardware is present, include module even if it is not currently loaded,
         # as we could e.g. be in the installer; nokmsboot boot parameter will disable
         # loading of the driver if needed
         if [[ $hostonly ]] && modinfo -F alias $_modname | sed -e 's,\?,\.,g' -e 's,\*,\.\*,g' \
-            | grep -qxf - /sys/bus/pci/devices/*/modalias 2>/dev/null; then
+            | grep -qxf - /sys/bus/{pci/devices,soc/devices/soc?}/*/modalias 2>/dev/null; then
             hostonly='' instmods $_modname
+            # if radeon.ko is installed, we want amdkfd also
+            if strstr "$_modname" radeon.ko; then
+                hostonly='' instmods amdkfd
+            fi
             continue
         fi
         instmods $_modname

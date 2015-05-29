@@ -1,15 +1,15 @@
 #!/bin/bash
-# -*- mode: shell-script; indent-tabs-mode: nil; sh-basic-offset: 4; -*-
-# ex: ts=8 sw=4 sts=4 et filetype=sh
 
+# called by dracut
 install() {
     local _i
 
-    # Fixme: would be nice if we didn't have to know which rules to grab....
+    # Fixme: would be nice if we didn't have to guess, which rules to grab....
     # ultimately, /lib/initramfs/rules.d or somesuch which includes links/copies
     # of the rules we want so that we just copy those in would be best
-    inst_multiple udevadm cat uname blkid \
-        /etc/udev/udev.conf
+    inst_multiple udevadm cat uname blkid
+    inst_dir /etc/udev
+    inst_multiple -o /etc/udev/udev.conf
 
     [ -d ${initdir}/$systemdutildir ] || mkdir -p ${initdir}/$systemdutildir
     for _i in ${systemdutildir}/systemd-udevd ${udevdir}/udevd /sbin/udevd; do
@@ -31,13 +31,22 @@ install() {
         60-pcmcia.rules \
         50-udev.rules 95-late.rules \
         50-firmware.rules \
-        75-net-description.rules 80-net-name-slot.rules \
+        59-scsi-sg3_utils.rules \
+        55-scsi-sg3_id.rules 58-scsi-sg3_symlink.rules \
+        70-uaccess.rules 71-seat.rules 73-seat-late.rules \
+        75-net-description.rules \
+        80-net-name-slot.rules 80-net-setup-link.rules \
         "$moddir/59-persistent-storage.rules" \
         "$moddir/61-persistent-storage.rules"
 
     prepare_udev_rules 59-persistent-storage.rules 61-persistent-storage.rules
     # debian udev rules
     inst_rules 91-permissions.rules
+    # eudev rules
+    inst_rules 80-drivers-modprobe.rules
+
+    inst_multiple -o ${systemdutildir}/network/*.link
+    [[ $hostonly ]] && inst_multiple -H -o /etc/systemd/network/*.link
 
     {
         for i in cdrom tape dialout floppy; do

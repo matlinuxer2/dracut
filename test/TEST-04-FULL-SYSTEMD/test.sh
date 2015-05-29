@@ -163,7 +163,7 @@ EOF
             /etc/security \
             /lib64/security \
             /lib/security -xtype f \
-            | while read file; do
+            | while read file || [ -n "$file" ]; do
             inst_multiple -o $file
         done
 
@@ -173,6 +173,7 @@ EOF
 
         # install basic keyboard maps and fonts
         for i in \
+            /usr/lib/kbd/consolefonts/eurlatgr* \
             /usr/lib/kbd/consolefonts/latarcyrheb-sun16* \
             /usr/lib/kbd/keymaps/include/* \
             /usr/lib/kbd/keymaps/i386/include/* \
@@ -190,9 +191,9 @@ EOF
         # softlink mtab
         ln -fs /proc/self/mounts $initdir/etc/mtab
 
-        # install any Exec's from the service files
+        # install any Execs from the service files
         egrep -ho '^Exec[^ ]*=[^ ]+' $initdir/lib/systemd/system/*.service \
-            | while read i; do
+            | while read i || [ -n "$i" ]; do
             i=${i##Exec*=}; i=${i##-}
             inst_multiple -o $i
         done
@@ -204,7 +205,7 @@ EOF
         cp -a /etc/ld.so.conf* $initdir/etc
         ldconfig -r "$initdir"
         ddebug "Strip binaeries"
-        find "$initdir" -perm +111 -type f | xargs -r strip --strip-unneeded | ddebug
+        find "$initdir" -perm /0111 -type f | xargs -r strip --strip-unneeded | ddebug
 
         # copy depmod files
         inst /lib/modules/$kernel/modules.order
@@ -217,7 +218,7 @@ EOF
         fi
 
     )
-#exit 1
+
     # second, install the files needed to make the root filesystem
     (
 	export initdir=$TESTDIR/overlay
@@ -232,17 +233,14 @@ EOF
     # We do it this way so that we do not risk trashing the host mdraid
     # devices, volume groups, encrypted partitions, etc.
     $basedir/dracut.sh -l -i $TESTDIR/overlay / \
-	-m "dash udev-rules btrfs base rootfs-block kernel-modules" \
+	-m "dash udev-rules btrfs base rootfs-block fs-lib kernel-modules" \
 	-d "piix ide-gd_mod ata_piix btrfs sd_mod" \
         --nomdadmconf \
         --nohardlink \
+        --no-hostonly-cmdline -N \
 	-f $TESTDIR/initramfs.makeroot $KVERSION || return 1
 
     # Invoke KVM and/or QEMU to actually create the target filesystem.
-
-#    echo $TESTDIR/overlay
-#    echo $TESTDIR/initramfs.makeroot
-#exit 1
     rm -rf -- $TESTDIR/overlay
 
     $testdir/run-qemu \
@@ -264,13 +262,12 @@ EOF
     sudo $basedir/dracut.sh -l -i $TESTDIR/overlay / \
 	-a "debug systemd" \
 	-I "/etc/machine-id /etc/hostname" \
-        -o "dash network plymouth lvm mdraid resume crypt i18n caps dm terminfo usrmount" \
+        -o "dash network plymouth lvm mdraid resume crypt i18n caps dm terminfo usrmount kernel-network-modules" \
 	-d "piix ide-gd_mod ata_piix btrfs sd_mod i6300esb ib700wdt" \
+        --no-hostonly-cmdline -N \
 	-f $TESTDIR/initramfs.testing $KVERSION || return 1
 
     rm -rf -- $TESTDIR/overlay
-
-#	-o "plymouth network md dmraid multipath fips caps crypt btrfs resume dmsquash-live dm"
 }
 
 test_cleanup() {

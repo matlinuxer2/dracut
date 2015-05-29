@@ -1,10 +1,16 @@
 #!/bin/bash
-# -*- mode: shell-script; indent-tabs-mode: nil; sh-basic-offset: 4; -*-
-# ex: ts=8 sw=4 sts=4 et filetype=sh
 
 set -e
 
+# do some sanity checks first
+[ -e /run/initramfs/bin/sh ] && exit 0
+[ -e /run/initramfs/.need_shutdown ] || exit 0
+
 KERNEL_VERSION="$(uname -r)"
+
+[[ $dracutbasedir ]] || dracutbasedir=/usr/lib/dracut
+SKIP="$dracutbasedir/skipcpio"
+[[ -x $SKIP ]] || SKIP=cat
 
 [[ -f /etc/machine-id ]] && read MACHINE_ID < /etc/machine-id
 
@@ -16,9 +22,11 @@ fi
 cd /run/initramfs
 
 [ -f .need_shutdown -a -f "$IMG" ] || exit 1
-if zcat "$IMG"  | cpio -id --quiet >/dev/null; then
+if $SKIP "$IMG" | zcat | cpio -id --no-absolute-filenames --quiet >/dev/null; then
     rm -f -- .need_shutdown
-elif xzcat "$IMG"  | cpio -id --quiet >/dev/null; then
+elif $SKIP "$IMG" | xzcat | cpio -id --no-absolute-filenames --quiet >/dev/null; then
+    rm -f -- .need_shutdown
+elif $SKIP "$IMG" | lz4 -d -c | cpio -id --no-absolute-filenames --quiet >/dev/null; then
     rm -f -- .need_shutdown
 else
     # something failed, so we clean up

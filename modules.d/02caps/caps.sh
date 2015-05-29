@@ -1,12 +1,10 @@
 #!/bin/bash
-# -*- mode: shell-script; indent-tabs-mode: nil; sh-basic-offset: 4; -*-
-# ex: ts=8 sw=4 sts=4 et filetype=sh
 
 capsmode=$(getarg rd.caps)
 
 if [ "$capsmode" = "1" ]; then
     CAPS_INIT_DROP=$(getarg rd.caps.initdrop=)
-    CAPS_USERMODEHELPER_BSET=$(capsh --drop="$CAPS_INIT_DROP" -- -c 'while read a b ; do [ "$a" = "CapBnd:" ] && echo $((0x${b:$((${#b}-8)):8})) $((0x${b:$((${#b}-16)):8})) && break; done < /proc/self/status')
+    CAPS_USERMODEHELPER_BSET=$(capsh --drop="$CAPS_INIT_DROP" -- -c 'while read a b  || [ -n "$a" ]; do [ "$a" = "CapBnd:" ] && echo $((0x${b:$((${#b}-8)):8})) $((0x${b:$((${#b}-16)):8})) && break; done < /proc/self/status')
     CAPS_MODULES_DISABLED=$(getarg rd.caps.disablemodules=)
     CAPS_KEXEC_DISABLED=$(getarg rd.caps.disablekexec=)
 

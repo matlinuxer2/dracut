@@ -1,6 +1,4 @@
 #!/bin/sh
-# -*- mode: shell-script; indent-tabs-mode: nil; sh-basic-offset: 4; -*-
-# ex: ts=8 sw=4 sts=4 et filetype=sh
 
 mount_boot()
 {
@@ -60,9 +58,9 @@ do_rhevh_check()
     KERNEL=$(uname -r)
     kpath=${1}
 
-    # If we're on RHEV-H, the kernel is in /dev/.initramfs/live/vmlinuz0
-    HMAC_SUM_ORIG=$(cat /boot/.vmlinuz-${KERNEL}.hmac | while read a b; do printf "%s\n" $a; done)
-    HMAC_SUM_CALC=$(sha512hmac $kpath | while read a b; do printf "%s\n" $a; done || return 1)
+    # If we're on RHEV-H, the kernel is in /run/initramfs/live/vmlinuz0
+    HMAC_SUM_ORIG=$(cat $NEWROOT/boot/.vmlinuz-${KERNEL}.hmac | while read a b || [ -n "$a" ]; do printf "%s\n" $a; done)
+    HMAC_SUM_CALC=$(sha512hmac $kpath | while read a b || [ -n "$a" ]; do printf "%s\n" $a; done || return 1)
     if [ -z "$HMAC_SUM_ORIG" ] || [ -z "$HMAC_SUM_CALC" ] || [ "${HMAC_SUM_ORIG}" != "${HMAC_SUM_CALC}" ]; then
         warn "HMAC sum mismatch"
         return 1
@@ -94,9 +92,8 @@ do_fips()
             if ! modprobe "${_module}"; then
                 # check if kernel provides generic algo
                 _found=0
-                while read _k _s _v; do
+                while read _k _s _v || [ -n "$_k" ]; do
                     [ "$_k" != "name" -a "$_k" != "driver" ] && continue
-                    [ "$_k" = "driver" ] && _v=$(str_replace "$_v" "_" "-")
                     [ "$_v" != "$_module" ] && continue
                     _found=1
                     break
@@ -112,10 +109,10 @@ do_fips()
     rmmod tcrypt
 
     info "Checking integrity of kernel"
-    if [ -e "$NEWROOT/dev/.initramfs/live/vmlinuz0" ]; then
-        do_rhevh_check "$NEWROOT/dev/.initramfs/live/vmlinuz0" || return 1
-    elif [ -e "$NEWROOT/dev/.initramfs/live/isolinux/vmlinuz0" ]; then
-        do_rhevh_check "$NEWROOT/dev/.initramfs/live/isolinux/vmlinuz0" || return 1
+    if [ -e "/run/initramfs/live/vmlinuz0" ]; then
+        do_rhevh_check /run/initramfs/live/vmlinuz0 || return 1
+    elif [ -e "/run/initramfs/live/isolinux/vmlinuz0" ]; then
+        do_rhevh_check /run/initramfs/live/isolinux/vmlinuz0 || return 1
     else
         sha512hmac -c "/boot/.vmlinuz-${KERNEL}.hmac" || return 1
     fi

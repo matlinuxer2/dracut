@@ -13,7 +13,7 @@ test_run() {
 	-net none -kernel /boot/vmlinuz-$KVERSION \
 	-append "root=LABEL=root rw rd.retry=3 rd.info console=ttyS0,115200n81 selinux=0 $DEBUGFAIL" \
 	-initrd $TESTDIR/initramfs.testing
-    dd if=$DISKIMAGE bs=512 count=2 | grep -F -m 1 -q dracut-root-block-success $DISKIMAGE || return 1
+    dd if=$DISKIMAGE bs=512 count=4 skip=2048 | grep -F -m 1 -q dracut-root-block-success $DISKIMAGE || return 1
 }
 
 test_setup() {
@@ -27,6 +27,15 @@ test_setup() {
     (
 	export initdir=$TESTDIR/overlay/source
 	. $basedir/dracut-functions.sh
+        (
+            cd "$initdir"
+            mkdir -p -- dev sys proc etc var/run tmp
+            mkdir -p root usr/bin usr/lib usr/lib64 usr/sbin
+            for i in bin sbin lib lib64; do
+                ln -sfnr usr/$i $i
+            done
+            mkdir -p -- var/lib/nfs/rpc_pipefs
+        )
 	inst_multiple sh df free ls shutdown poweroff stty cat ps ln ip route \
 	    mount dmesg ifconfig dhclient mkdir cp ping dhclient
         for _terminfodir in /lib/terminfo /etc/terminfo /usr/share/terminfo; do
@@ -37,8 +46,8 @@ test_setup() {
 	inst "$basedir/modules.d/40network/ifup.sh" "/sbin/ifup"
 	inst_multiple grep
 	inst ./test-init.sh /sbin/init
+	inst_simple /etc/os-release
 	find_binary plymouth >/dev/null && inst_multiple plymouth
-	(cd "$initdir"; mkdir -p dev sys proc etc var/run tmp )
 	cp -a /etc/ld.so.conf* $initdir/etc
 	sudo ldconfig -r "$initdir"
     )
@@ -57,9 +66,10 @@ test_setup() {
     # We do it this way so that we do not risk trashing the host mdraid
     # devices, volume groups, encrypted partitions, etc.
     $basedir/dracut.sh -l -i $TESTDIR/overlay / \
-	-m "dash btrfs udev-rules base rootfs-block kernel-modules" \
+	-m "dash btrfs udev-rules base rootfs-block fs-lib kernel-modules" \
 	-d "piix ide-gd_mod ata_piix btrfs sd_mod" \
         --nomdadmconf \
+        --no-hostonly-cmdline -N \
 	-f $TESTDIR/initramfs.makeroot $KVERSION || return 1
 
     rm -rf -- $TESTDIR/overlay
@@ -72,7 +82,7 @@ test_setup() {
 	-append "root=/dev/fakeroot rw quiet console=ttyS0,115200n81 selinux=0" \
 	-initrd $TESTDIR/initramfs.makeroot  || return 1
 
-    dd if=$DISKIMAGE bs=512 count=2 | grep -F -m 1 -q dracut-root-block-created || return 1
+    dd if=$DISKIMAGE bs=512 count=4 skip=2048 | grep -F -m 1 -q dracut-root-block-created || return 1
 
    (
         export initdir=$TESTDIR/overlay
@@ -82,9 +92,10 @@ test_setup() {
 	inst_simple ./99-idesymlinks.rules /etc/udev/rules.d/99-idesymlinks.rules
     )
     sudo $basedir/dracut.sh -l -i $TESTDIR/overlay / \
-	-o "plymouth network" \
+	-o "plymouth network kernel-network-modules" \
 	-a "debug" \
 	-d "piix ide-gd_mod ata_piix btrfs sd_mod" \
+        --no-hostonly-cmdline -N \
 	-f $TESTDIR/initramfs.testing $KVERSION || return 1
 }
 

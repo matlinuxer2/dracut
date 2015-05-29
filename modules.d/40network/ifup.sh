@@ -1,6 +1,4 @@
 #!/bin/sh
-# -*- mode: shell-script; indent-tabs-mode: nil; sh-basic-offset: 4; -*-
-# ex: ts=8 sw=4 sts=4 et filetype=sh
 #
 # We don't need to check for ip= errors here, that is handled by the
 # cmdline parser script
@@ -60,7 +58,7 @@ fi
 # bridge this interface?
 if [ -e /tmp/bridge.info ]; then
     . /tmp/bridge.info
-    for ethname in $ethnames ; do
+    for ethname in $bridgeslaves ; do
         if [ "$netif" = "$ethname" ]; then
             if [ "$netif" = "$bondname" ] && [ -n "$DO_BOND_SETUP" ] ; then
                 : # We need to really setup bond (recursive call)
@@ -80,19 +78,33 @@ fi
 # in netroot case we prefer netroot to bringup $netif automaticlly
 [ -n "$2" -a "$2" = "-m" ] && [ -z "$netroot" ] && manualup="$2"
 [ -z "$netroot" ] && [ -z "$manualup" ] && exit 0
-[ -n "$manualup" ] && >/tmp/net.$netif.manualup
+if [ -n "$manualup" ]; then
+    >/tmp/net.$netif.manualup
+else
+    [ -e /tmp/net.${netif}.did-setup ] && exit 0
+    [ -e /sys/class/net/$netif/address ] && \
+        [ -e /tmp/net.$(cat /sys/class/net/$netif/address).did-setup ] && exit 0
+fi
 
 # Run dhclient
 do_dhcp() {
     # dhclient-script will mark the netif up and generate the online
     # event for nfsroot
     # XXX add -V vendor class and option parsing per kernel
+
+    [ -e /tmp/dhclient.$netif.pid ] && return 0
+
+    if ! iface_has_link $netif; then
+        echo "No carrier detected"
+        return 1
+    fi
     echo "Starting dhcp for interface $netif"
     dhclient "$@" -1 -q -cf /etc/dhclient.conf -pf /tmp/dhclient.$netif.pid -lf /tmp/dhclient.$netif.lease $netif \
         || echo "dhcp failed"
 }
 
 load_ipv6() {
+    [ -d /proc/sys/net/ipv6 ] && return
     modprobe ipv6
     i=0
     while [ ! -d /proc/sys/net/ipv6 ]; do
@@ -117,23 +129,23 @@ do_ipv6auto() {
 
 # Handle static ip configuration
 do_static() {
-    strstr $ip '*:*:*' && load_ipv6
+    strglobin $ip '*:*:*' && load_ipv6
 
     linkup $netif
     [ -n "$macaddr" ] && ip link set address $macaddr dev $netif
     [ -n "$mtu" ] && ip link set mtu $mtu dev $netif
-    if strstr $ip '*:*:*'; then
+    if strglobin $ip '*:*:*'; then
         # note no ip addr flush for ipv6
         ip addr add $ip/$mask ${srv:+peer $srv} dev $netif
+        wait_for_ipv6_dad $netif
     else
         ip addr flush dev $netif
         ip addr add $ip/$mask ${srv:+peer $srv} brd + dev $netif
     fi
 
-    [ -n "$gw" ] && echo ip route add default via $gw dev $netif > /tmp/net.$netif.gw
+    [ -n "$gw" ] && echo ip route replace default via $gw dev $netif > /tmp/net.$netif.gw
     [ -n "$hostname" ] && echo "echo $hostname > /proc/sys/kernel/hostname" > /tmp/net.$netif.hostname
 
-    > /tmp/setup_net_${netif}.ok
     return 0
 }
 
@@ -175,6 +187,7 @@ if [ -e /tmp/bond.${netif}.info ]; then
 
         for slave in $bondslaves ; do
             ip link set $slave down
+            cat /sys/class/net/$slave/address > /tmp/net.${netif}.${slave}.hwaddr
             echo "+$slave" > /sys/class/net/$bondname/bonding/slaves
             linkup $slave
         done
@@ -203,7 +216,7 @@ if [ -e /tmp/team.info ]; then
             fi
         done
         # Do not add slaves now
-        teamd -d -U -n -t $teammaster -f /etc/teamd/$teammaster.conf
+        teamd -d -U -n -N -t $teammaster -f /etc/teamd/$teammaster.conf
         for slave in $working_slaves; do
             # team requires the slaves to be down before joining team
             ip link set $slave down
@@ -221,7 +234,7 @@ if [ -e /tmp/bridge.info ]; then
     if [ "$netif" = "$bridgename" ] && [ ! -e /tmp/net.$bridgename.up ]; then
         brctl addbr $bridgename
         brctl setfd $bridgename 0
-        for ethname in $ethnames ; do
+        for ethname in $bridgeslaves ; do
             if [ "$ethname" = "$bondname" ] ; then
                 DO_BOND_SETUP=yes ifup $bondname -m
             elif [ "$ethname" = "$teammaster" ] ; then
@@ -260,18 +273,15 @@ if [ "$netif" = "$vlanname" ] && [ ! -e /tmp/net.$vlanname.up ]; then
     ip link set "$vlanname" up
 fi
 
-# setup nameserver
-namesrv=$(getargs nameserver)
-if  [ -n "$namesrv" ] ; then
-    for s in $namesrv; do
-        echo nameserver $s
-    done
-fi >> /tmp/net.$netif.resolv.conf
-
 # No ip lines default to dhcp
 ip=$(getarg ip)
 
 if [ -z "$ip" ]; then
+    namesrv=$(getargs nameserver)
+    for s in $namesrv; do
+        echo nameserver $s >> /tmp/net.$netif.resolv.conf
+    done
+
     if [ "$netroot" = "dhcp6" ]; then
         do_dhcp -6
     else
@@ -303,21 +313,32 @@ for p in $(getargs ip=); do
     [ "$use_bridge" != 'true' ] && \
     [ "$use_vlan" != 'true' ] && continue
 
+    # setup nameserver
+    namesrv="$dns1 $dns2 $(getargs nameserver)"
+    for s in $namesrv; do
+        echo nameserver $s >> /tmp/net.$netif.resolv.conf
+    done
+
     # Store config for later use
-    for i in ip srv gw mask hostname macaddr; do
+    for i in ip srv gw mask hostname macaddr dns1 dns2; do
         eval '[ "$'$i'" ] && echo '$i'="$'$i'"'
     done > /tmp/net.$netif.override
 
-    case $autoconf in
-        dhcp|on|any)
-            do_dhcp -4 ;;
-        dhcp6)
-            do_dhcp -6 ;;
-        auto6)
-            do_ipv6auto ;;
-        *)
-            do_static ;;
-    esac
+    for autoopt in $(str_replace "$autoconf" "," " "); do
+        case $autoopt in
+            dhcp|on|any)
+                do_dhcp -4 ;;
+            dhcp6)
+                load_ipv6
+                do_dhcp -6 ;;
+            auto6)
+                do_ipv6auto ;;
+            *)
+                do_static ;;
+        esac
+    done
+
+    > /tmp/net.${netif}.up
 
     case $autoconf in
         dhcp|on|any|dhcp6)
@@ -344,8 +365,13 @@ if [ -n "$DO_BOND_SETUP" -o -n "$DO_TEAM_SETUP" -o -n "$DO_VLAN_SETUP" ]; then
 fi
 
 # no ip option directed at our interface?
-if [ ! -e /tmp/setup_net_${netif}.ok ]; then
-    do_dhcp -4
+if [ ! -e /tmp/net.${netif}.up ]; then
+    if getargs 'ip=dhcp6'; then
+        load_ipv6
+        do_dhcp -6
+    else
+        do_dhcp -4
+    fi
 fi
 
 exit 0

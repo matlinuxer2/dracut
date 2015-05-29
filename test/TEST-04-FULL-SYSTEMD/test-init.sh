@@ -1,13 +1,13 @@
 #!/bin/sh
 >/dev/watchdog
 export PATH=/sbin:/bin:/usr/sbin:/usr/bin
-strstr() { [ "${1#*$2*}" != "$1" ]; }
-CMDLINE=$(while read line; do echo $line;done < /proc/cmdline)
+strstr() { [ "${1##*"$2"*}" != "$1" ]; }
+CMDLINE=$(while read line || [ -n "$line" ]; do echo $line;done < /proc/cmdline)
 plymouth --quit
 exec </dev/console >/dev/console 2>&1
 
 ismounted() {
-    while read a m a; do
+    while read a m a || [ -n "$a" ]; do
         [ "$m" = "$1" ] && return 0
     done < /proc/mounts
     return 1

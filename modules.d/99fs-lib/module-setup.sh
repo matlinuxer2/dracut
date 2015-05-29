@@ -1,11 +1,11 @@
 #!/bin/bash
-# -*- mode: shell-script; indent-tabs-mode: nil; sh-basic-offset: 4; -*-
-# ex: ts=8 sw=4 sts=4 et filetype=sh
 
+# called by dracut
 check() {
     return 0
 }
 
+# called by dracut
 depends() {
     return 0
 }
@@ -15,10 +15,10 @@ echo_fs_helper() {
     local dev=$1 fs=$2
     case "$fs" in
         xfs)
-            echo -n " xfs_db xfs_repair xfs_check xfs_metadump "
+            echo -n " xfs_db xfs_repair xfs_check xfs_metadump"
             ;;
         ext?)
-            echo -n " fsck.$fs e2fsck "
+            echo -n " e2fsck "
             ;;
         jfs)
             echo -n " jfs_fsck "
@@ -29,10 +29,10 @@ echo_fs_helper() {
         btrfs)
             echo -n " btrfsck "
             ;;
-        *)
-            [[ -x fsck.$fs ]] && echo -n " fsck.$fs "
-            ;;
     esac
+
+    echo -n " fsck.$fs "
+    return 0
 }
 
 include_fs_helper_modules() {
@@ -44,6 +44,7 @@ include_fs_helper_modules() {
     esac
 }
 
+# called by dracut
 installkernel() {
     # xfs and btrfs needs crc32c...
     if [[ $hostonly ]]; then
@@ -54,6 +55,7 @@ installkernel() {
     fi
 }
 
+# called by dracut
 install() {
     local _helpers
 

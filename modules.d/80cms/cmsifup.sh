@@ -1,6 +1,4 @@
 #!/bin/bash
-# -*- mode: shell-script; indent-tabs-mode: nil; sh-basic-offset: 4; -*-
-# ex: ts=8 sw=4 sts=4 et filetype=sh
 
 type getarg >/dev/null 2>&1 || . /lib/dracut-lib.sh
 
@@ -8,7 +6,7 @@ DEVICE=$1
 
 . /tmp/cms.conf
 
-strstr "$IPADDR" '*:*:*' && ipv6=1
+strglobin "$IPADDR" '*:*:*' && ipv6=1
 
 if [ "$ipv6" ] && ! str_starts "$IPADDR" "["; then
     IPADDR="[$IPADDR]"

@@ -1,23 +1,30 @@
 #!/bin/bash
-# -*- mode: shell-script; indent-tabs-mode: nil; sh-basic-offset: 4; -*-
-# ex: ts=8 sw=4 sts=4 et filetype=sh
 
+# called by dracut
 check() {
     [[ "$mount_needs" ]] && return 1
-    type -P plymouthd >/dev/null && type -P plymouth >/dev/null
+    require_binaries plymouthd plymouth plymouth-set-default-theme
 }
 
+# called by dracut
 depends() {
     echo drm
 }
 
+# called by dracut
 install() {
-    if grep -q nash /usr/libexec/plymouth/plymouth-populate-initrd \
-        || [ ! -x /usr/libexec/plymouth/plymouth-populate-initrd ]; then
+    PKGLIBDIR="/usr/lib/plymouth"
+    if type -P dpkg-architecture &>/dev/null; then
+        PKGLIBDIR="/usr/lib/$(dpkg-architecture -qDEB_HOST_MULTIARCH)/plymouth"
+    fi
+    [ -x /usr/libexec/plymouth/plymouth-populate-initrd ] && PKGLIBDIR="/usr/libexec/plymouth"
+
+    if grep -q nash ${PKGLIBDIR}/plymouth-populate-initrd \
+        || [ ! -x ${PKGLIBDIR}/plymouth-populate-initrd ]; then
         . "$moddir"/plymouth-populate-initrd.sh
     else
         PLYMOUTH_POPULATE_SOURCE_FUNCTIONS="$dracutfunctions" \
-            /usr/libexec/plymouth/plymouth-populate-initrd -t "$initdir"
+            ${PKGLIBDIR}/plymouth-populate-initrd -t "$initdir"
     fi
 
     inst_hook emergency 50 "$moddir"/plymouth-emergency.sh

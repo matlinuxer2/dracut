@@ -6,6 +6,10 @@ Items are ordered in priority.
 
 INITRAMFS TODO
 
+- allow dual stack configuration (IPv4, IPv6) for the same interface
+- "bind-mount" kernel drivers in real root for the rescue image,
+  if the real root does not have any kernel modules for this kernel
+  https://bugzilla.redhat.com/show_bug.cgi?id=1046510
 - use info and warn prefix
 - generate systemd unit dracut-initramfs-restore in /run/systemd dynamically
 - put "root=" parsing hooks in separate hook dir
@@ -22,7 +26,9 @@ INITRAMFS TODO
 
 GENERATOR TODO
 
+- report errors on missing files in check()
 - remove wait for swap devs, if no "resume=" is given on the kernel command line
+- remove wait for swap devs, if the "resume" dracut module is not included (omitted)
 - add presets (predefined set of modules)
 - add interpreter/plugin-scripts to be sourced at the beginning or end (can use dracut-functions)
 - add mechanism for module specific command line options
@@ -42,3 +48,6 @@ Future Enhancement Requests
 - run ssh server to enter crypto password or perform debugging (supported by debian)
 - https://bugzilla.redhat.com/show_bug.cgi?id=524727 - dracut + encrypted root + networking
 
+- lsinitrd --print-cmdline
+- dracut --print-cmdline error if additional arguments
+- library for cmdline

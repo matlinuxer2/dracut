@@ -1,6 +1,4 @@
 #!/bin/sh
-# -*- mode: shell-script; indent-tabs-mode: nil; sh-basic-offset: 4; -*-
-# ex: ts=8 sw=4 sts=4 et filetype=sh
 #
 # This implementation is incomplete: Discovery mode is not implemented and
 # the argument handling doesn't follow currently agreed formats. This is mainly
@@ -31,32 +29,46 @@ iroot="$2"
 # If it's not iscsi we don't continue
 [ "${iroot%%:*}" = "iscsi" ] || exit 1
 
-iroot=${iroot#iscsi:}
+iroot=${iroot#iscsi}
+iroot=${iroot#:}
 
 # XXX modprobe crc32c should go in the cmdline parser, but I haven't yet
 # figured out a way how to check whether this is built-in or not
 modprobe crc32c 2>/dev/null
 
-[ -e /sys/module/bnx2i ] && iscsiuio
-
-if getargbool 0 rd.iscsi.firmware -d -y iscsi_firmware ; then
-    if [ -z "$root" -o -n "${root%%block:*}" ]; then
-        # if root is not specified try to mount the whole iSCSI LUN
-        printf 'ENV{DEVTYPE}!="partition", SYMLINK=="disk/by-path/*-iscsi-*-*", SYMLINK+="root"\n' >> /etc/udev/rules.d/99-iscsi-root.rules
-        udevadm control --reload
-        write_fs_tab /dev/root
-        wait_for_dev /dev/root
-    fi
-
-    for p in $(getargs rd.iscsi.param -d iscsi_param); do
-	iscsi_param="$iscsi_param --param $p"
-    done
-
-    iscsistart -b $iscsi_param
-    echo 'started' > "/tmp/iscsistarted-iscsi"
-    echo 'started' > "/tmp/iscsistarted-firmware"
-    exit 0
+if [ -e /sys/module/bnx2i ] && ! [ -e /tmp/iscsiuio-started ]; then
+        iscsiuio
+        > /tmp/iscsiuio-started
 fi
+
+handle_firmware()
+{
+    if ! [ -e /tmp/iscsistarted-firmware ]; then
+        if ! iscsistart -f; then
+            warn "iscistart: Could not get list of targets from firmware."
+            return 1
+        fi
+
+        for p in $(getargs rd.iscsi.param -d iscsi_param); do
+	    iscsi_param="$iscsi_param --param $p"
+        done
+
+        if ! iscsistart -b $iscsi_param; then
+            warn "'iscsistart -b $iscsi_param' failed"
+        fi
+
+        if [ -d /sys/class/iscsi_session ]; then
+            echo 'started' > "/tmp/iscsistarted-iscsi:"
+            echo 'started' > "/tmp/iscsistarted-firmware"
+        else
+            return 1
+        fi
+
+        need_shutdown
+    fi
+    return 0
+}
+
 
 handle_netroot()
 {
@@ -69,23 +81,23 @@ handle_netroot()
     local p
 
     # override conf settings by command line options
-    arg=$(getargs rd.iscsi.initiator -d iscsi_initiator=)
+    arg=$(getarg rd.iscsi.initiator -d iscsi_initiator=)
     [ -n "$arg" ] && iscsi_initiator=$arg
-    arg=$(getargs rd.iscsi.target.name -d iscsi_target_name=)
+    arg=$(getarg rd.iscsi.target.name -d iscsi_target_name=)
     [ -n "$arg" ] && iscsi_target_name=$arg
-    arg=$(getargs rd.iscsi.target.ip -d iscsi_target_ip)
+    arg=$(getarg rd.iscsi.target.ip -d iscsi_target_ip)
     [ -n "$arg" ] && iscsi_target_ip=$arg
-    arg=$(getargs rd.iscsi.target.port -d iscsi_target_port=)
+    arg=$(getarg rd.iscsi.target.port -d iscsi_target_port=)
     [ -n "$arg" ] && iscsi_target_port=$arg
-    arg=$(getargs rd.iscsi.target.group -d iscsi_target_group=)
+    arg=$(getarg rd.iscsi.target.group -d iscsi_target_group=)
     [ -n "$arg" ] && iscsi_target_group=$arg
-    arg=$(getargs rd.iscsi.username -d iscsi_username=)
+    arg=$(getarg rd.iscsi.username -d iscsi_username=)
     [ -n "$arg" ] && iscsi_username=$arg
-    arg=$(getargs rd.iscsi.password -d iscsi_password)
+    arg=$(getarg rd.iscsi.password -d iscsi_password)
     [ -n "$arg" ] && iscsi_password=$arg
-    arg=$(getargs rd.iscsi.in.username -d iscsi_in_username=)
+    arg=$(getarg rd.iscsi.in.username -d iscsi_in_username=)
     [ -n "$arg" ] && iscsi_in_username=$arg
-    arg=$(getargs rd.iscsi.in.password -d iscsi_in_password=)
+    arg=$(getarg rd.iscsi.in.password -d iscsi_in_password=)
     [ -n "$arg" ] && iscsi_in_password=$arg
     for p in $(getargs rd.iscsi.param -d iscsi_param); do
 	iscsi_param="$iscsi_param --param $p"
@@ -111,7 +123,7 @@ handle_netroot()
 
     if [ -z $iscsi_initiator ]; then
        if [ -f /sys/firmware/ibft/initiator/initiator-name ]; then
-           iscsi_initiator=$(while read line; do echo $line;done < /sys/firmware/ibft/initiator-name)
+           iscsi_initiator=$(while read line || [ -n "$line" ]; do echo $line;done < /sys/firmware/ibft/initiator/initiator-name)
        fi
     fi
 
@@ -137,12 +149,12 @@ handle_netroot()
 
 # FIXME $iscsi_protocol??
 
-    if [ -z "$root" -o -n "${root%%block:*}" ]; then
+    if [ "$root" = "dhcp" ]; then
         # if root is not specified try to mount the whole iSCSI LUN
         printf 'SYMLINK=="disk/by-path/*-iscsi-*-%s", SYMLINK+="root"\n' $iscsi_lun >> /etc/udev/rules.d/99-iscsi-root.rules
         udevadm control --reload
         write_fs_tab /dev/root
-        wait_for_dev /dev/root
+        wait_for_dev -n /dev/root
 
         # install mount script
         [ -z "$DRACUT_SYSTEMD" ] && \
@@ -166,21 +178,38 @@ handle_netroot()
 
     netroot_enc=$(str_replace "$1" '/' '\2f')
     echo 'started' > "/tmp/iscsistarted-iscsi:${netroot_enc}"
-
 }
+
+ret=0
 
 # loop over all netroot parameter
 if getarg netroot; then
     for nroot in $(getargs netroot); do
-        [ "${netroot%%:*}" = "iscsi" ] || continue
-        handle_netroot ${nroot##iscsi:}
+        [ "${nroot%%:*}" = "iscsi" ] || continue
+        nroot="${nroot##iscsi:}"
+        if [ -n "$nroot" ]; then
+            handle_netroot "$nroot"
+            ret=$(($ret + $?))
+        fi
     done
+    if getargbool 0 rd.iscsi.firmware -d -y iscsi_firmware ; then
+        handle_firmware
+        ret=$(($ret + $?))
+    fi
 else
-    handle_netroot $iroot
+    if [ -n "$iroot" ]; then
+        handle_netroot "$iroot"
+        ret=$?
+    else
+        if getargbool 0 rd.iscsi.firmware -d -y iscsi_firmware ; then
+            handle_firmware
+            ret=$?
+        fi
+    fi
 fi
 
 need_shutdown
 
 # now we have a root filesystem somewhere in /dev/sda*
 # let the normal block handler handle root=
-exit 0
+exit $ret

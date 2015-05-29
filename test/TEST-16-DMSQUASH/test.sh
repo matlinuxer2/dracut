@@ -41,6 +41,7 @@ test_setup() {
     sudo $basedir/dracut.sh -l -i "$TESTDIR"/overlay / \
 	-a "debug dmsquash-live" \
 	-d "piix ide-gd_mod ata_piix ext3 sd_mod" \
+        --no-hostonly-cmdline -N \
 	-f "$TESTDIR"/initramfs.testing "$KVERSION" || return 1
 
     mkdir -p -- "$TESTDIR"/root-source
@@ -49,6 +50,14 @@ test_setup() {
     (
 	export initdir="$TESTDIR"/root-source
 	. "$basedir"/dracut-functions.sh
+	(
+            cd "$initdir"
+            mkdir -p -- dev sys proc etc var/run tmp
+            mkdir -p root usr/bin usr/lib usr/lib64 usr/sbin
+            for i in bin sbin lib lib64; do
+                ln -sfnr usr/$i $i
+            done
+        )
 	inst_multiple sh df free ls shutdown poweroff stty cat ps ln ip route \
 	    mount dmesg ifconfig dhclient mkdir cp ping dhclient \
 	    umount strace less
@@ -67,7 +76,6 @@ test_setup() {
 	inst "$TESTDIR"/initramfs.testing "/boot/initramfs-$KVERSION.img"
 	inst /boot/vmlinuz-"$KVERSION"
 	find_binary plymouth >/dev/null && inst_multiple plymouth
-	(cd "$initdir"; mkdir -p -- dev sys proc etc var/run tmp )
 	cp -a -- /etc/ld.so.conf* "$initdir"/etc
 	sudo ldconfig -r -- "$initdir"
     )

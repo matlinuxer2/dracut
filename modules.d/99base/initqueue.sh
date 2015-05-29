@@ -1,6 +1,4 @@
 #!/bin/sh
-# -*- mode: shell-script; indent-tabs-mode: nil; sh-basic-offset: 4; -*-
-# ex: ts=8 sw=4 sts=4 et filetype=sh
 #
 # Licensed under the GPLv2+
 #
@@ -44,6 +42,10 @@ exe=$1
 shift
 
 [ -x "$exe" ] || exe=$(command -v $exe)
+if [ -z "$exe" ] ; then
+    echo "Invalid command"
+    exit 1
+fi
 
 {
     [ -n "$onetime" ] && echo '[ -e "$job" ] && rm -f -- "$job"'

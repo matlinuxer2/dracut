@@ -1,6 +1,4 @@
 #!/bin/sh
-# -*- mode: shell-script; indent-tabs-mode: nil; sh-basic-offset: 4; -*-
-# ex: ts=8 sw=4 sts=4 et filetype=sh
 
 MD_UUID=$(getargs rd.md.uuid -d rd_MD_UUID=)
 
@@ -12,11 +10,12 @@ else
     if [ -n "$MD_UUID" ]; then
         for f in /etc/udev/rules.d/65-md-incremental*.rules; do
             [ -e "$f" ] || continue
-            while read line; do
+            while read line || [ -n "$line" ]; do
                 if [ "${line%%UUID CHECK}" != "$line" ]; then
                     printf 'IMPORT{program}="/sbin/mdadm --examine --export $tempnode"\n'
                     for uuid in $MD_UUID; do
                         printf 'ENV{MD_UUID}=="%s", GOTO="md_uuid_ok"\n' $uuid
+                        printf 'ENV{ID_FS_UUID}=="%s", GOTO="md_uuid_ok"\n' $uuid
                     done;
                     printf 'GOTO="md_end"\n'
                     printf 'LABEL="md_uuid_ok"\n'

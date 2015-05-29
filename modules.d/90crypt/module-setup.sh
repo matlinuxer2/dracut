@@ -1,11 +1,10 @@
 #!/bin/bash
-# -*- mode: shell-script; indent-tabs-mode: nil; sh-basic-offset: 4; -*-
-# ex: ts=8 sw=4 sts=4 et filetype=sh
 
+# called by dracut
 check() {
     local _rootdev
     # if cryptsetup is not installed, then we cannot support encrypted devices.
-    type -P cryptsetup >/dev/null || return 1
+    require_binaries cryptsetup || return 1
 
     [[ $hostonly ]] || [[ $mount_needs ]] && {
         for fs in "${host_fs_types[@]}"; do
@@ -17,15 +16,18 @@ check() {
     return 0
 }
 
+# called by dracut
 depends() {
     echo dm rootfs-block
     return 0
 }
 
+# called by dracut
 installkernel() {
     instmods dm_crypt =crypto
 }
 
+# called by dracut
 cmdline() {
     local dev UUID
     for dev in "${!host_fs_types[@]}"; do
@@ -33,7 +35,7 @@ cmdline() {
 
         UUID=$(
             blkid -u crypto -o export $dev \
-                | while read line; do
+                | while read line || [ -n "$line" ]; do
                 [[ ${line#UUID} = $line ]] && continue
                 printf "%s" "${line#UUID=}"
                 break
@@ -44,10 +46,13 @@ cmdline() {
     done
 }
 
+# called by dracut
 install() {
 
-    cmdline >> "${initdir}/etc/cmdline.d/90crypt.conf"
-    echo >> "${initdir}/etc/cmdline.d/90crypt.conf"
+    if [[ $hostonly_cmdline == "yes" ]]; then
+        local _cryptconf=$(cmdline)
+        [[ $_cryptconf ]] && printf "%s\n" "$_cryptconf" >> "${initdir}/etc/cmdline.d/90crypt.conf"
+    fi
 
     inst_multiple cryptsetup rmdir readlink umount
     inst_script "$moddir"/cryptroot-ask.sh /sbin/cryptroot-ask
@@ -60,7 +65,7 @@ install() {
 
     if [[ $hostonly ]] && [[ -f /etc/crypttab ]]; then
         # filter /etc/crypttab for the devices we need
-        while read _mapper _dev _rest; do
+        while read _mapper _dev _rest || [ -n "$_mapper" ]; do
             [[ $_mapper = \#* ]] && continue
             [[ $_dev ]] || continue
 
@@ -75,6 +80,7 @@ install() {
                 fi
             done
         done < /etc/crypttab > $initdir/etc/crypttab
+        mark_hostonly /etc/crypttab
     fi
 
     inst_simple "$moddir/crypt-lib.sh" "/lib/dracut-crypt-lib.sh"

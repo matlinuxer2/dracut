@@ -1,6 +1,4 @@
 #!/bin/sh
-# -*- mode: shell-script; indent-tabs-mode: nil; sh-basic-offset: 4; -*-
-# ex: ts=8 sw=4 sts=4 et filetype=sh
 mod_args=""
 
 for dasd_arg in $(getargs rd.dasd= -d rd_DASD= DASD=); do
@@ -15,4 +13,6 @@ if [ -n "$mod_args" ]; then
 fi
 
 unset dasd_arg
-dasd_cio_free
+if [ -x /sbin/dasd_cio_free ] ; then
+    dasd_cio_free
+fi

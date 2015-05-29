@@ -1,10 +1,9 @@
 #!/bin/bash
-# -*- mode: shell-script; indent-tabs-mode: nil; sh-basic-offset: 4; -*-
-# ex: ts=8 sw=4 sts=4 et filetype=sh
 
+# called by dracut
 check() {
     # If our prerequisites are not met, fail anyways.
-    type -P mount.cifs >/dev/null || return 1
+    require_binaries mount.cifs || return 1
 
     [[ $hostonly ]] || [[ $mount_needs ]] && {
         for fs in ${host_fs_types[@]}; do
@@ -16,15 +15,18 @@ check() {
     return 0
 }
 
+# called by dracut
 depends() {
     # We depend on network modules being loaded
     echo network
 }
 
+# called by dracut
 installkernel() {
     instmods cifs ipv6
 }
 
+# called by dracut
 install() {
     local _i
     local _nsslibs

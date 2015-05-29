@@ -1,20 +1,21 @@
 #!/bin/bash
-# -*- mode: shell-script; indent-tabs-mode: nil; sh-basic-offset: 4; -*-
-# ex: ts=8 sw=4 sts=4 et filetype=sh
 
+# called by dracut
 check() {
     return 0
 }
 
+# called by dracut
 depends() {
     echo udev-rules
     return 0
 }
 
+# called by dracut
 install() {
     local _d
 
-    inst_multiple mount mknod mkdir sleep chroot \
+    inst_multiple mount mknod mkdir sleep chroot chown \
         sed ls flock cp mv dmesg rm ln rmmod mkfifo umount readlink setsid
     inst $(command -v modprobe) /sbin/modprobe
 
@@ -42,16 +43,11 @@ install() {
     mkdir -p ${initdir}/tmp
 
     inst_simple "$moddir/dracut-lib.sh" "/lib/dracut-lib.sh"
-    inst_simple "$moddir/uefi-lib.sh" "/lib/uefi-lib.sh"
+    mkdir -p "${initdir}/var"
 
     if ! dracut_module_included "systemd"; then
         inst_multiple switch_root || dfatal "Failed to install switch_root"
         inst_hook cmdline 10 "$moddir/parse-root-opts.sh"
-    fi
-
-    mkdir -p "${initdir}/var"
-
-    if ! dracut_module_included "systemd"; then
         inst_multiple -o $systemdutildir/systemd-timestamp
     fi
 
@@ -88,29 +84,33 @@ install() {
         echo VERSION_ID=$VERSION_ID
         echo PRETTY_NAME=\"$PRETTY_NAME\"
         echo ANSI_COLOR=\"$ANSI_COLOR\"
-    } > $initdir/etc/initrd-release
+    } > $initdir/usr/lib/initrd-release
     echo dracut-$DRACUT_VERSION > $initdir/lib/dracut/dracut-$DRACUT_VERSION
+    ln -sf ../usr/lib/initrd-release $initdir/etc/initrd-release
+    ln -sf initrd-release $initdir/usr/lib/os-release
     ln -sf initrd-release $initdir/etc/os-release
 
     ## save host_devs which we need bring up
-    if [[ -f "$initdir/lib/dracut/need-initqueue" ]] || ! dracut_module_included "systemd"; then
-        (
-            if dracut_module_included "systemd"; then
-                DRACUT_SYSTEMD=1
-            fi
-            PREFIX="$initdir"
+    if [[ $hostonly_cmdline == "yes" ]]; then
+        if [[ -f "$initdir/lib/dracut/need-initqueue" ]] || ! dracut_module_included "systemd"; then
+            (
+                if dracut_module_included "systemd"; then
+                    DRACUT_SYSTEMD=1
+                fi
+                PREFIX="$initdir"
 
-            . "$moddir/dracut-lib.sh"
+                . "$moddir/dracut-lib.sh"
 
-            for _dev in ${host_devs[@]}; do
-                [[ "$_dev" == "$root_dev" ]] && continue
-                _pdev=$(get_persistent_dev $_dev)
+                for _dev in ${host_devs[@]}; do
+                    [[ "$_dev" == "$root_dev" ]] && continue
+                    _pdev=$(get_persistent_dev $_dev)
 
-                case "$_pdev" in
-                    /dev/?*) wait_for_dev $_pdev;;
-                    *) ;;
-                esac
-            done
-        )
+                    case "$_pdev" in
+                        /dev/?*) wait_for_dev $_pdev;;
+                        *) ;;
+                    esac
+                done
+            )
+        fi
     fi
 }

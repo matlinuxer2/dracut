@@ -1,6 +1,4 @@
 #!/bin/sh
-# -*- mode: shell-script; indent-tabs-mode: nil; sh-basic-offset: 4; -*-
-# ex: ts=8 sw=4 sts=4 et filetype=sh
 #
 # Preferred format:
 #       root=iscsi:[<servername>]:[<protocol>]:[<port>]:[<LUN>]:<targetname>
@@ -61,20 +59,16 @@ fi
 
 # iscsi_firmware does not need argument checking
 if [ -n "$iscsi_firmware" ] ; then
-    netroot=${netroot:-iscsi}
-    modprobe -q iscsi_boot_sysfs 2>/dev/null
-    modprobe -q iscsi_ibft
-    echo "[ -f '/tmp/iscsistarted-firmware' ]" > $hookdir/initqueue/finished/iscsi_firmware_started.sh
+    [ -z "$netroot" ] && netroot=iscsi:
+    modprobe -b -q iscsi_boot_sysfs 2>/dev/null
+    modprobe -b -q iscsi_ibft
+    initqueue --onetime --timeout /sbin/iscsiroot dummy "$netroot" "$NEWROOT"
 fi
 
 # If it's not iscsi we don't continue
 [ "${netroot%%:*}" = "iscsi" ] || return
 
-modprobe -q qla4xxx
-modprobe -q cxgb3i
-modprobe -q cxgb4i
-modprobe -q bnx2i
-modprobe -q be2iscsi
+initqueue --onetime modprobe --all -b -q qla4xxx cxgb3i cxgb4i bnx2i be2iscsi
 
 if [ -z "$iscsi_firmware" ] ; then
     type parse_iscsi_root >/dev/null 2>&1 || . /lib/net-lib.sh
@@ -83,7 +77,7 @@ fi
 
 # ISCSI actually supported?
 if ! [ -e /sys/module/iscsi_tcp ]; then
-    modprobe -q iscsi_tcp || die "iscsiroot requested but kernel/initrd does not support iscsi"
+    modprobe -b -q iscsi_tcp || die "iscsiroot requested but kernel/initrd does not support iscsi"
 fi
 
 if [ -n "$netroot" ] && [ "$root" != "/dev/root" ] && [ "$root" != "dhcp" ]; then
@@ -92,8 +86,12 @@ if [ -n "$netroot" ] && [ "$root" != "/dev/root" ] && [ "$root" != "dhcp" ]; the
     fi
 fi
 
-netroot_enc=$(str_replace "$netroot" '/' '\2f')
-echo "[ -f '/tmp/iscsistarted-$netroot_enc' ]" > $hookdir/initqueue/finished/iscsi_started.sh
+if [ -n "$iscsi_firmware" ] ; then
+    echo "[ -f '/tmp/iscsistarted-firmware' ]" > $hookdir/initqueue/finished/iscsi_started.sh
+else
+    netroot_enc=$(str_replace "$netroot" '/' '\2f')
+    echo "[ -f '/tmp/iscsistarted-$netroot_enc' ]" > $hookdir/initqueue/finished/iscsi_started.sh
+fi
 
 # Done, all good!
 rootok=1

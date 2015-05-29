@@ -1,11 +1,10 @@
 #!/bin/bash
-# -*- mode: shell-script; indent-tabs-mode: nil; sh-basic-offset: 4; -*-
-# ex: ts=8 sw=4 sts=4 et filetype=sh
 
+# called by dracut
 check() {
     local _rootdev
     # No mdadm?  No mdraid support.
-    type -P mdadm >/dev/null || return 1
+    require_binaries mdadm || return 1
 
     [[ $hostonly ]] || [[ $mount_needs ]] && {
         for dev in "${!host_fs_types[@]}"; do
@@ -26,15 +25,18 @@ check() {
     return 0
 }
 
+# called by dracut
 depends() {
     echo rootfs-block
     return 0
 }
 
+# called by dracut
 installkernel() {
     instmods =drivers/md
 }
 
+# called by dracut
 cmdline() {
     local _activated dev line UUID
     declare -A _activated
@@ -44,11 +46,13 @@ cmdline() {
 
         UUID=$(
             /sbin/mdadm --examine --export $dev \
-                | while read line; do
+                | while read line || [ -n "$line" ]; do
                 [[ ${line#MD_UUID=} = $line ]] && continue
                 printf "%s" "${line#MD_UUID=} "
             done
         )
+
+        [[ -z "$UUID" ]] && continue
 
         if ! [[ ${_activated[${UUID}]} ]]; then
             printf "%s" " rd.md.uuid=${UUID}"
@@ -58,6 +62,7 @@ cmdline() {
     done
 }
 
+# called by dracut
 install() {
     local rule rule_path
     inst_multiple cat
@@ -65,8 +70,10 @@ install() {
     inst $(command -v partx) /sbin/partx
     inst $(command -v mdadm) /sbin/mdadm
 
-    cmdline  >> "${initdir}/etc/cmdline.d/90mdraid.conf"
-    echo  >> "${initdir}/etc/cmdline.d/90mdraid.conf"
+    if [[ $hostonly_cmdline == "yes" ]]; then
+        local _raidconf=$(cmdline)
+        [[ $_raidconf ]] && printf "%s\n" "$_raidconf" >> "${initdir}/etc/cmdline.d/90mdraid.conf"
+    fi
 
     # <mdadm-3.3 udev rule
     inst_rules 64-md-raid.rules
@@ -79,7 +86,7 @@ install() {
     for rule in 64-md-raid.rules 64-md-raid-assembly.rules; do
         rule_path="${initdir}${udevdir}/rules.d/${rule}"
         [ -f "${rule_path}" ] && sed -i -r \
-            -e '/RUN\+?="[[:alpha:]/]*mdadm[[:blank:]]+(--incremental|-I)[[:blank:]]+(\$env\{DEVNAME\}|\$tempnode|\$devnode)/d' \
+            -e '/(RUN|IMPORT\{program\})\+?="[[:alpha:]/]*mdadm[[:blank:]]+(--incremental|-I)[[:blank:]]+(--export )?(\$env\{DEVNAME\}|\$tempnode|\$devnode)/d' \
             "${rule_path}"
     done
 
@@ -98,16 +105,16 @@ install() {
 
     if [[ $hostonly ]] || [[ $mdadmconf = "yes" ]]; then
         if [ -f /etc/mdadm.conf ]; then
-            inst /etc/mdadm.conf
+            inst -H /etc/mdadm.conf
         else
-            [ -f /etc/mdadm/mdadm.conf ] && inst /etc/mdadm/mdadm.conf /etc/mdadm.conf
+            [ -f /etc/mdadm/mdadm.conf ] && inst -H /etc/mdadm/mdadm.conf /etc/mdadm.conf
         fi
         if [ -d /etc/mdadm.conf.d ]; then
             local f
             inst_dir /etc/mdadm.conf.d
             for f in /etc/mdadm.conf.d/*.conf; do
                 [ -f "$f" ] || continue
-                inst "$f"
+                inst -H "$f"
             done
         fi
     fi

@@ -1,7 +1,6 @@
 #!/bin/bash
-# -*- mode: shell-script; indent-tabs-mode: nil; sh-basic-offset: 4; -*-
-# ex: ts=8 sw=4 sts=4 et filetype=sh
 
+# called by dracut
 check() {
     if type -P systemd-detect-virt >/dev/null 2>&1; then
         vm=$(systemd-detect-virt --vm >/dev/null 2>&1)
@@ -20,7 +19,11 @@ check() {
     return 255
 }
 
+# called by dracut
 installkernel() {
         # qemu specific modules
-        hostonly='' instmods virtio_blk virtio virtio_ring virtio_pci ata_piix ata_generic pata_acpi cdrom sr_mod ahci virtio_scsi
+        hostonly='' instmods \
+            ata_piix ata_generic pata_acpi cdrom sr_mod ahci \
+            virtio_blk virtio virtio_ring virtio_pci \
+            virtio_scsi virtio_console virtio_rng
 }
