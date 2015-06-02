@@ -283,7 +283,8 @@ mkdir -p $LIVE_BASELAY
 mkdir -p $LIVE_OVERLAY
 mkdir -p $LIVE_OVERSYS
 
-[ ! -f "$LIVE_SYS_IMG" ] || {
+[ -e "$LIVE_SYS_IMG" ] || {
+        printf "Starting to create $LIVE_SYS_IMG ..."
         dd if=/dev/zero of="$LIVE_SYS_IMG" bs=4096 count=$((1000*1000*2)) # 8GB
         new_loop_devpath=$( losetup -f )
         losetup "$new_loop_devpath" "$LIVE_SYS_IMG"
