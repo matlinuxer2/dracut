@@ -270,7 +270,7 @@ fi
 ln -s /dev/mapper/live-rw /dev/root
 printf 'mount %s /dev/mapper/live-rw %s\n' "$ROOTFLAGS" "$NEWROOT" > $hookdir/mount/01-$$-live.sh
 
-cat | sed -e "s/\$FSIMG/$FSIMG/g" -e "s/\$NEWROOT/$NEWROOT/g" > $hookdir/mount/01-$$-live.sh <<"EOF"
+cat | sed -e "s%\$FSIMG%$FSIMG%g" -e "s%\$NEWROOT%$NEWROOT%g" > $hookdir/mount/01-$$-live.sh <<"EOF"
 # NOTE: For overlay machanism comparsion,
 #     device-mapper => device level
 #     aufs          => filesystem level
