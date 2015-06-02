@@ -270,7 +270,7 @@ fi
 ln -s /dev/mapper/live-rw /dev/root
 printf 'mount %s /dev/mapper/live-rw %s\n' "$ROOTFLAGS" "$NEWROOT" > $hookdir/mount/01-$$-live.sh
 
-cat | sed -e "s%\$FSIMG%$FSIMG%g" -e "s%\$NEWROOT%$NEWROOT%g" > $hookdir/mount/01-$$-live.sh <<"EOF"
+cat <<"EOF" | sed -e "s%\$FSIMG%$FSIMG%g" -e "s%\$NEWROOT%$NEWROOT%g" > $hookdir/mount/01-$$-live.sh
 # NOTE: For overlay machanism comparsion,
 #     device-mapper => device level
 #     aufs          => filesystem level
@@ -278,24 +278,26 @@ LIVE_BASELAY="/dev/.live/img/"
 LIVE_OVERLAY="/dev/.live/cow/"
 LIVE_OVERSYS="/dev/.live/sys/"
 LIVE_SYS_IMG="/run/initramfs/live/livesys.img"
+BR_OPTIONS=""
 
-mkdir -p $LIVE_BASELAY
 mkdir -p $LIVE_OVERLAY
-mkdir -p $LIVE_OVERSYS
-
-[ -e "$LIVE_SYS_IMG" ] || {
-        printf "Starting to create $LIVE_SYS_IMG ..."
-        dd if=/dev/zero of="$LIVE_SYS_IMG" bs=4096 count=$((1000*1000*2)) # 8GB
-        new_loop_devpath=$( losetup -f )
-        losetup "$new_loop_devpath" "$LIVE_SYS_IMG"
-        mkfs -t ext3 -m 1 -v "$new_loop_devpath"
-        losetup --detach "$new_loop_devpath"
+mount LABEL=live-rw $LIVE_OVERLAY && {
+    BR_OPTIONS="$BR_OPTIONS:$LIVE_OVERLAY=rw"
 }
 
-mount -t squashfs $FSIMG $LIVE_BASELAY
-mount LABEL=live-rw $LIVE_OVERLAY
-mount $LIVE_SYS_IMG $LIVE_OVERSYS
-mount -t aufs -o rw,noatime,br=$LIVE_OVERLAY=rw:$LIVE_OVERSYS=rw:$LIVE_BASELAY=ro none $NEWROOT
+[ -e "$LIVE_SYS_IMG" ] && {
+    mkdir -p $LIVE_OVERSYS
+    mount $LIVE_SYS_IMG $LIVE_OVERSYS && {
+        BR_OPTIONS="$BR_OPTIONS:$LIVE_OVERSYS=rw"
+    }
+}
+
+mkdir -p $LIVE_BASELAY
+mount -t squashfs $FSIMG $LIVE_BASELAY && {
+    BR_OPTIONS="$BR_OPTIONS:$LIVE_BASELAY=ro"
+}
+
+mount -t aufs -o rw,noatime,br=${BR_OPTIONS#:} none $NEWROOT
 EOF
 
 need_shutdown
