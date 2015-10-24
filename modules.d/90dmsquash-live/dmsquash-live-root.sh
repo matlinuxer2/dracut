@@ -268,7 +268,10 @@ if [ -n "$ROOTFLAGS" ]; then
 fi
 
 ln -s /dev/mapper/live-rw /dev/root
-printf 'mount %s /dev/mapper/live-rw %s\n' "$ROOTFLAGS" "$NEWROOT" > $hookdir/mount/01-$$-live.sh
+
+if [ -z "$DRACUT_SYSTEMD" ]; then
+    printf 'mount %s /dev/mapper/live-rw %s\n' "$ROOTFLAGS" "$NEWROOT" > $hookdir/mount/01-$$-live.sh
+fi
 
 cat <<"EOF" | sed -e "s%\$FSIMG%$FSIMG%g" -e "s%\$NEWROOT%$NEWROOT%g" > $hookdir/mount/01-$$-live.sh
 # NOTE: For overlay machanism comparsion,

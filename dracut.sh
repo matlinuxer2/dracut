@@ -821,7 +821,7 @@ stdloglvl=$((stdloglvl + verbosity_mod_l))
 [[ $mdadmconf_l ]] && mdadmconf=$mdadmconf_l
 [[ $lvmconf_l ]] && lvmconf=$lvmconf_l
 [[ $dracutbasedir ]] || dracutbasedir=/usr/lib/dracut
-[[ $fw_dir ]] || fw_dir="/lib/firmware/updates /lib/firmware"
+[[ $fw_dir ]] || fw_dir="/lib/firmware/updates /lib/firmware /lib/firmware/$kernel"
 [[ $tmpdir_l ]] && tmpdir="$tmpdir_l"
 [[ $tmpdir ]] || tmpdir=/var/tmp
 [[ $INITRD_COMPRESS ]] && compress=$INITRD_COMPRESS
@@ -853,7 +853,8 @@ fi
 # handle compression options.
 [[ $compress ]] || compress="gzip"
 case $compress in
-    bzip2) compress="bzip2 -9";;
+    bzip2) compress="bzip2 -9";
+        command -v lbzip2 > /dev/null 2>&1 && compress="lbzip2 -9";;
     lzma)  compress="lzma -9 -T0";;
     xz)    compress="xz --check=crc32 --lzma2=dict=1MiB -T0";;
     gzip)  compress="gzip -n -9";
@@ -934,7 +935,7 @@ if ! [[ $print_cmdline ]]; then
     rm -fr -- ${initdir}/*
 fi
 
-# Verify bash version, current minimum is 3.1
+# Verify bash version, current minimum is 4
 if (( BASH_VERSINFO[0] < 4 )); then
     dfatal 'You need at least Bash 4 to use dracut, sorry.'
     exit 1
@@ -1223,7 +1224,9 @@ if [[ $hostonly ]]; then
                     done < /etc/crypttab
                 fi
 
-                push_host_devs "$(readlink -f "$dev")"
+                _dev="$(readlink -f "$dev")"
+                push_host_devs "$_dev"
+                push swap_devs "$_dev"
                 break
             done < /etc/fstab
         done < /proc/swaps
@@ -1334,7 +1337,7 @@ export initdir dracutbasedir \
     omit_drivers mdadmconf lvmconf root_dev \
     use_fstab fstab_lines libdirs fscks nofscks ro_mnt \
     stdloglvl sysloglvl fileloglvl kmsgloglvl logfile \
-    debug host_fs_types host_devs sshkey add_fstab \
+    debug host_fs_types host_devs swap_devs sshkey add_fstab \
     DRACUT_VERSION udevdir prefix filesystems drivers \
     systemdutildir systemdsystemunitdir systemdsystemconfdir \
     host_modalias host_modules hostonly_cmdline loginstall \
@@ -1518,6 +1521,7 @@ if [[ $kernel_only != yes ]]; then
         [ -z "${line[3]}" ] && line[3]="defaults"
         [ -z "${line[4]}" ] && line[4]="0"
         [ -z "${line[5]}" ] && line[5]="2"
+        strstr "${line[2]}" "nfs" && line[5]="0"
         echo "${line[@]}" >> "${initdir}/etc/fstab"
     done
 
