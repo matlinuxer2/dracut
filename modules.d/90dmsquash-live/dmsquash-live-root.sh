@@ -279,28 +279,28 @@ cat <<"EOF" | sed -e "s%\$FSIMG%$FSIMG%g" -e "s%\$NEWROOT%$NEWROOT%g" > $hookdir
 #     aufs          => filesystem level
 LIVE_BASELAY="/dev/.live/img/"
 LIVE_OVERLAY="/dev/.live/cow/"
-LIVE_OVERSYS="/dev/.live/sys/"
+LIVE_SYSLAY="/dev/.live/sys/"
 LIVE_SYS_IMG="/run/initramfs/live/livesys.img"
-BR_OPTIONS=""
 
-mkdir -p $LIVE_OVERLAY
-mount LABEL=live-rw $LIVE_OVERLAY && {
-    BR_OPTIONS="$BR_OPTIONS:$LIVE_OVERLAY=rw"
-}
-
-[ -e "$LIVE_SYS_IMG" ] && {
-    mkdir -p $LIVE_OVERSYS
-    mount $LIVE_SYS_IMG $LIVE_OVERSYS && {
-        BR_OPTIONS="$BR_OPTIONS:$LIVE_OVERSYS=rw"
-    }
-}
 
 mkdir -p $LIVE_BASELAY
-mount -t squashfs $FSIMG $LIVE_BASELAY && {
-    BR_OPTIONS="$BR_OPTIONS:$LIVE_BASELAY=ro"
-}
+if [ -e "$LIVE_SYS_IMG" ] ; then 
+    mkdir -p $LIVE_SYSLAY
+    mount $LIVE_SYS_IMG $LIVE_SYSLAY/
+    mkdir -p $LIVE_SYSLAY/.img
+    mkdir -p $LIVE_SYSLAY/.sys
+    mkdir -p $LIVE_SYSLAY/.work
+    mount $FSIMG $LIVE_SYSLAY/.img -t squashfs
+    mount overlay $LIVE_BASELAY -t overlay -o lowerdir=$LIVE_SYSLAY/.img/,upperdir=$LIVE_SYSLAY/.sys/,workdir=$LIVE_SYSLAY/.work/
+else
+    mount $FSIMG $LIVE_BASELAY -t squashfs
+fi
 
-mount -t aufs -o rw,noatime,br=${BR_OPTIONS#:} none $NEWROOT
+mkdir -p $LIVE_OVERLAY/.cow
+mkdir -p $LIVE_OVERLAY/.work
+mount LABEL=live-rw $LIVE_OVERLAY
+mount overlay $NEWROOT -t overlay -o lowerdir=$LIVE_BASELAY,upperdir=$LIVE_OVERLAY/.cow/,workdir=$LIVE_OVERLAY/.work
+
 EOF
 
 need_shutdown
